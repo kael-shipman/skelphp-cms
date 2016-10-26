@@ -2,14 +2,16 @@
 
 use PHPUnit\Framework\TestCase;
 
-class GenericContentTest extends TestCase {
+getDb(true);
+
+class GenericContentTests extends TestCase {
   public function testCanCreateDefaultContent() {
     try {
       $c = new \Skel\Content();
       $this->assertTrue($c->getActive(), "Content should be 'active' by default");
       $this->assertNull($c->getTitle(), "Content title should default to null");
       $this->assertNull($c->getCanonicalAddr(), "Content canonical id should default to null");
-      $this->assertEquals('content', $c->getContentClass(), "Content class should default to 'content'");
+      $this->assertEquals('Content', $c->getContentClass(), "Content class should default to 'Content'");
       $this->assertEquals('text/plain; charset=UTF-8', $c->getContentType(), "Content type should default to 'text/plain; charset=UTF-8'");
       $this->assertNull($c->getContentUri(), "Content Uri should default to null");
       $this->assertEquals((new \DateTime())->format('Y-m-d'), $c->getDateCreated()->format('Y-m-d'), "Content created date should default to today");
@@ -33,7 +35,7 @@ class GenericContentTest extends TestCase {
       $this->assertFalse($c->getActive(), "Active should have been set to false");
       $this->assertEquals('Test', $c->getTitle(), "Title should have been set to 'Test'");
       $this->assertEquals('/about/me', $c->getCanonicalAddr(), "Canonical Address Should have been set to '/about/me'");
-      $this->assertEquals('content', $c->getContentClass(), "Content class should be 'content'");
+      $this->assertEquals('Content', $c->getContentClass(), "Content class should be 'Content'");
       $this->assertEquals('text/markdown; charset=UTF-8', $c->getContentType(), "Content type should be 'text/markdown; charset=UTF-8'");
       $this->assertEquals('file://pages/about/me.md', $c->getContentUri()->toString(), "Content URI was not set correctly");
       $this->assertEquals("2016-11-01T18:00:00-0500", $c->getDateCreated()->format(\DateTime::ISO8601), "Date created was not set correctly");
@@ -84,7 +86,7 @@ class GenericContentTest extends TestCase {
   }
 
   public function testCanSaveNewContent() {
-    $db = getDb();
+    $db = getDb(true);
     $c = $this->getTestContent();
     $c->setDatasource($db);
 
@@ -101,7 +103,7 @@ class GenericContentTest extends TestCase {
     $this->assertEquals(0, $data['active'], "Active should have been set to false");
     $this->assertEquals('Test', $data['title'], "Title should have been set to 'Test'");
     $this->assertEquals('/about/me', $data['canonicalAddr'], "Canonical Id Should have been set to '/about/me'");
-    $this->assertEquals('content', $data['contentClass'], "Content class should be 'content'");
+    $this->assertEquals('Content', $data['contentClass'], "Content class should be 'Content'");
     $this->assertEquals('text/markdown; charset=UTF-8', $data['contentType'], "Content type should be 'text/markdown; charset=UTF-8'");
     $this->assertEquals('file://pages/about/me.md', $data['contentUri'], "Content URI was not set correctly");
     $this->assertEquals("2016-11-01T18:00:00-0500", $data['dateCreated'], "Date created was not set correctly");
@@ -114,6 +116,37 @@ class GenericContentTest extends TestCase {
     $this->assertEquals(array('/about/me', '/writings/about-me'), $data['addresses'], "Addresses were not set correctly");
   }
 
+  public function testCanCreateFromData() {
+    $db = getDb(true);
+    $c = $this->getTestContent();
+    $c->setDatasource($db);
+    $c->save();
+    $data = $db->getContentDataWhere('"title" = ?', array('Test'));
+
+    $d = new \Skel\Content($data[0]);
+
+    $this->assertEquals($c->getId(), $d->getId(), "Error getting Id from data");
+    $this->assertEquals($c->getActive(), $d->getActive(), "Error getting Active from data");
+    $this->assertEquals($c->getTitle(), $d->getTitle(), "Error getting Title from data");
+    $this->assertEquals($c->getCanonicalAddr(), $d->getCanonicalAddr(), "Error getting CanonicalAddr from data");
+    $this->assertEquals($c->getContentClass(), $d->getContentClass(), "Error getting ContentClass from data");
+    $this->assertEquals($c->getContentType(), $d->getContentType(), "Error getting ContentType from data");
+    $this->assertEquals($c->getContentUri(), $d->getContentUri(), "Error getting ContentUri from data");
+    $this->assertEquals($c->getDateCreated(), $d->getDateCreated(), "Error getting DateCreated from data");
+    $this->assertEquals($c->getDateExpired(), $d->getDateExpired(), "Error getting DateExpired from data");
+    $this->assertEquals($c->getDateUpdated(), $d->getDateUpdated(), "Error getting DateUpdated from data");
+    $this->assertEquals($c->getLang(), $d->getLang(), "Error getting Lang from data");
+    $this->assertEquals($c->getContent(), $d->getContent(), "Error getting Content from data");
+    $this->assertEquals($c->getAttributes(), $d->getAttributes(), "Error getting Attributes from data");
+    $this->assertEquals($c->getTags(), $d->getTags(), "Error getting Tags from data");
+    $this->assertEquals($c->getAddresses(), $d->getAddresses(), "Error getting Addresses from data");
+  }
+
+  public function testCanGetAttributesByKey() {
+    $c = $this->getTestContent();
+    $this->assertEquals('default', $c->getAttribute('nonexistent', 'default'), "Should have returned the default value for a nonexistent attribute");
+    $this->assertEquals(7, $c->getAttribute('permissions'), "Should have returned the permissions attribute that was set for the content");
+  }
 
 
 
@@ -131,7 +164,7 @@ class GenericContentTest extends TestCase {
       ->setActive(false)
       ->setTitle('Test')
       ->setCanonicalAddr('/about/me')
-      ->setContentClass('content')
+      ->setContentClass('Content')
       ->setContentType('text/markdown; charset=UTF-8')
       ->setContentUri(new \Skel\Uri("file://pages/about/me.md"))
       ->setDateCreated(\DateTime::createFromFormat(\DateTime::ISO8601, '2016-11-01T18:00:00-0500'))

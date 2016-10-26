@@ -14,6 +14,7 @@ class Content {
   protected $addresses = array();
   protected $attributes = array();
   protected $canonicalAddr;
+  protected $content;
   protected $contentClass;
   protected $contentType;
   protected $contentUri;
@@ -28,54 +29,59 @@ class Content {
   protected $db;
   protected $rawData;
   protected $changes = array();
+  protected $errors = array();
 
-  public function __construct() {
-    // Define defaults for new content
+  public function __construct(array $sourceData=null) {
+    $defaults = array('active' => 1, 'addresses' => array(), 'attributes' => array(), 'canonicalAddr' => null, 'contentClass' => 'Content', 'contentType' => 'text/plain; charset=UTF-8', 'contentUri' => null, 'dateCreated' => (new \DateTime())->format(\DateTime::ISO8601), 'dateExpired' => null, 'dateUpdated' => (new \DateTime())->format(\DateTime::ISO8601), 'id' => null, 'lang' => 'en', 'tags' => array(), 'title' => null);
+
+    // If building from data, make sure the source data is complete
+    if ($sourceData) {
+      $missing = array();
+      foreach($defaults as $f => $v) {
+        if (!isset($sourceData[$f])) $missing[] = $f;
+      }
+      if (count($missing) > 0) throw new InvalidDataException("Data passed into the Content constructor must have all of the fields required by Content. Missing fields: `".implode('`, `', $missing));
+      $data = $sourceData;
+    } else {
+      $data = $defaults;
+    }
+
+    // Set fields
+    $this->id = $data['id'];
     $this
-      ->setActive(true)
-      ->setContentClass('content')
-      ->setContentType('text/plain; charset=UTF-8')
-      ->setDateCreated(new \DateTime())
-      ->setDateUpdated($this->dateCreated)
-      ->setLang('en');
+      ->setActive((bool) $data['active'])
+      ->setCanonicalAddr($data['canonicalAddr'])
+      ->setContent($data['content'])
+      ->setContentClass($data['contentClass'])
+      ->setContentType($data['contentType'])
+      ->setContentUri($data['contentUri'] ? new Uri($data['contentUri']) : null)
+      ->setDateCreated($data['dateCreated'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateCreated']) : null)
+      ->setDateExpired($data['dateExpired'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateExpired']) : null)
+      ->setDateUpdated($data['dateUpdated'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateUpdated']) : null)
+      ->setLang($data['lang'])
+      ->setTitle($data['title'])
+    ;
+
+    // Add lists
+    foreach($data['addresses'] as $addr) $this->addAddress($addr);
+    foreach($data['attributes'] as $k => $v) $this->setAttribute($k, $v);
+    foreach($data['tags'] as $tag) $this->addTag($tag);
+
+    // If we're building from data, consider this a fresh, unchanged object
+    if ($sourceData) {
+      $this->errors = array();
+      $this->changed = array();
+    }
   }
 
 
 
-
-
-
-  /**
-   * Restores a Content object from serialized data in db
-   *
-   * @return Content
-   */
-  public static function createFromData($data) {
-    $content = new Content();
-    $content->id = $data['id'];
-    $content->active = (bool) $data['active'];
-    $content->addresses = $data['addresses'];
-    $content->attributes = $data['attributes'];
-    $content->canonicalAddr = $data['canonicalAddr'];
-    $content->content = $data['content'];
-    $content->contentClass = $data['contentClass'];
-    $content->contentType = $data['contentType'];
-    $content->contentUri = new Uri($data['contentUri']);
-    $content->dateCreated = \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateCreated']);
-    $content->dateExpired = \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateExpired']);
-    $content->dateUpdated = \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateUpdated']);
-    $content->lang = $data['lang'];
-    $content->tags = $data['tags'];
-    $content->title = $data['title'];
-
-    $content->rawData = $data;
-    return $content;
-  }
 
   public function save() {
     if (!$this->db) throw new \RuntimeException("You must set a datasource using `setDatasource` before attempting to persist changes");
 
     if (count($this->changes) === 0) return true;
+    if (count($this->errors) > 0) throw new InvalidDataException("There are errors preventing this object from being saved. Use `getErrors` to retrieve them in an array.");
 
     $data = array();
     foreach($this->changes as $field => $prevVal) $data[$field] = $this->rawData[$field];
@@ -105,9 +111,12 @@ class Content {
     $this->rawData[$field] = $val;
   }
 
-  public function setActive(bool $newVal) {
+  public function setActive($newVal) {
+    if (!is_bool($newVal) && !is_numeric($newVal)) $this->setError('active', 'The Active flag must evaluate to true or false');
+    else $this->clearError('active');
+
     $this->set('active', (int) $newVal);
-    $this->active = $newVal;
+    $this->active = (bool)$newVal;
     return $this;
   }
 
@@ -126,55 +135,72 @@ class Content {
     return $this;
   }
 
-  public function setCanonicalAddr(string $newVal) {
+  public function setCanonicalAddr(string $newVal=null) {
+    if (!$newVal) $this->setError('canonicalAddr', 'The Canonical Address is required');
+    else $this->clearError('canonicalAddr');
+
     $this->set('canonicalAddr', $newVal);
     $this->canonicalAddr = $newVal;
     return $this;
   }
 
-  public function setContentClass(string $newVal) {
+  public function setContentClass(string $newVal=null) {
+    if (!$newVal) $this->setError('contentClass', 'You must specify a valid Content Class for this content');
+    else $this->clearError('contentClass');
+
     $this->set('contentClass', $newVal);
     $this->contentClass = $newVal;
     return $this;
   }
 
-  public function setContent(string $newVal) {
+  public function setContent(string $newVal=null) {
+    if (!$newVal) $this->setError('content', 'You\'ve gotta set some content');
+    else $this->clearError('content');
+
     $this->set('content', $newVal);
     $this->content = $newVal;
     return $this;
   }
 
-  public function setContentType(string $newVal) {
+  public function setContentType(string $newVal=null) {
+    if (!$newVal) $this->setError('contentType', 'You must specifiy a valid Content Type for this content');
+    else $this->clearError('contentType');
+
     $this->set('contentType', $newVal);
     $this->contentType = $newVal;
     return $this;
   }
 
-  public function setContentUri(Interfaces\Uri $newVal) {
-    $this->set('contentUri', $newVal->toString());
+  public function setContentUri(Interfaces\Uri $newVal=null) {
+    if (!$newVal) $this->setError('contentUri', 'You must specifiy a valid Content Uri for this content');
+    else $this->clearError('contentUri');
+
+    $this->set('contentUri', ($newVal ? $newVal->toString() : null));
     $this->contentUri = $newVal;
     return $this;
   }
 
-  public function setDateCreated(\DateTime $newVal) {
+  public function setDateCreated(\DateTime $newVal=null) {
+    if (!$newVal) $newVal = new \DateTime();
     $this->set('dateCreated', $newVal->format(\DateTime::ISO8601));
     $this->dateCreated = $newVal;
     return $this;
   }
 
-  public function setDateExpired(\DateTime $newVal) {
-    $this->set('dateExpired', $newVal->format(\DateTime::ISO8601));
+  public function setDateExpired(\DateTime $newVal=null) {
+    $this->set('dateExpired', ($newVal ? $newVal->format(\DateTime::ISO8601) : null));
     $this->dateExpired = $newVal;
     return $this;
   }
 
-  public function setDateUpdated(\DateTime $newVal) {
+  public function setDateUpdated(\DateTime $newVal=null) {
+    if (!$newVal) $newVal = new \DateTime();
     $this->set('dateUpdated', $newVal->format(\DateTime::ISO8601));
     $this->dateUpdated = $newVal;
     return $this;
   }
 
-  public function setLang(string $newVal) {
+  public function setLang(string $newVal='en') {
     $this->set('lang', $newVal);
     $this->lang = $newVal;
     return $this;
@@ -214,11 +240,31 @@ class Content {
     return $this;
   }
 
-  public function setTitle(string $newVal) {
+  public function setTitle(string $newVal=null) {
+    if (!$newVal) $this->setError('title', 'You must specifiy a valid Title for this content');
+    else $this->clearError('title');
+
     $this->set('title', $newVal);
     $this->title = $newVal;
     return $this;
   }
+
+
+
+
+
+  /********************
+   * Errors
+   * *****************/
+
+  public function setError(string $key, string $val) {
+    $this->errors[$key] = $val;
+  }
+  public function clearError(string $key) {
+    unset($this->errors[$key]);
+  }
+  public function getErrors() { return $this->errors; }
+
 
 
 
@@ -261,6 +307,10 @@ class Content {
 
   public function getActive() { return $this->active; }
   public function getAddresses() { return $this->addresses; }
+  public function getAttribute(string $key, $defaultValue=null) {
+    if (isset($this->attributes[$key])) return $this->attributes[$key];
+    else return $defaultValue;
+  }
   public function getAttributes() { return $this->attributes; }
   public function getCanonicalAddr() { return $this->canonicalAddr; }
   public function getContent() { return $this->content; }

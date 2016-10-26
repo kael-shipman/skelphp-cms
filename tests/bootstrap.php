@@ -12,7 +12,7 @@ require_once $path.'/Post.php';
 require_once $path.'/DataTraits.php';
 
 class TestDb extends \Skel\Db implements \Skel\Interfaces\CmsDb {
-  use \Skel\CmsDb;
+  use \Skel\CmsDbSqlite;
 
   const VERSION = 1;
 
@@ -46,11 +46,13 @@ class TestDb extends \Skel\Db implements \Skel\Interfaces\CmsDb {
   }
 }
 
-function getDb() {
+function getDb(bool $fresh=false) {
   $dir = 'tests/db';
   $file = 'test.sqlite3';
   if (!is_dir($dir)) throw new RuntimeException("It looks like we're either not in the right directory, or the $dir directory is not yet created. Please create that directory and run this script from the root directory.");
-  if (is_file("$dir/$file")) unlink("$dir/$file");
+
+  if ($fresh && is_file("$dir/$file")) unlink("$dir/$file");
+
   $db = new TestDb("sqlite:$dir/$file");
   $db->setContentDir(new \Skel\Uri('file://'.getcwd().'/tests/content/'));
   return $db;
