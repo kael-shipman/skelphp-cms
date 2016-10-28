@@ -314,6 +314,7 @@ class Content implements Interfaces\Content {
   public function getDateUpdated() { return $this->dateUpdated; }
   public function getId() { return $this->id; }
   public function getLang() { return $this->lang; }
+  public function getRawData() { return $this->rawData; }
   public function getTags() { return $this->tags; }
   public function getTitle() { return $this->title; }
 }

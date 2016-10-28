@@ -52,7 +52,7 @@ trait CmsTraitSqlite {
   public function getContentByAddress(string $addr) {
     //TODO: Figure out better way to do this. This is janky as hell
 
-    $stm = $this->prepare('SELECT "content".* FROM "content" JOIN "content_addresses" ON ("content"."id" = "contentId") WHERE "address" = ?');
+    $stm = $this->db->prepare('SELECT "content".* FROM "content" JOIN "content_addresses" ON ("content"."id" = "contentId") WHERE "address" = ?');
     $stm->execute(array($addr));
     $content = $this->getContentData($stm);
     if ($content) $content = $content[0];
@@ -60,7 +60,7 @@ trait CmsTraitSqlite {
   }
 
   public function getContentDataWhere(string $where, array $values=array()) {
-    $stm = $this->prepare('SELECT * FROM "content" WHERE '.$where);
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE '.$where);
     $stm->execute($values);
     $rows = $this->getContentData($stm);
     return $rows;
@@ -74,10 +74,10 @@ trait CmsTraitSqlite {
     $orderby = 'ORDER BY "dateCreated" DESC ';
     if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
     if (!$category) {
-      $stm = $this->prepare('SELECT * FROM "content" WHERE "contentClass" = ? '.$orderby.$limit);
+      $stm = $this->db->prepare('SELECT * FROM "content" WHERE "contentClass" = ? '.$orderby.$limit);
       $stm->execute(array('\Skel\Post'));
     } else {
-      $stm = $this->prepare('SELECT "content".* FROM "content" JOIN "content_attributes" ON ("content"."id" = "contentId") WHERE "contentClass" = ? and "key" = ? and "value" = ? '.$orderby.$limit);
+      $stm = $this->db->prepare('SELECT "content".* FROM "content" JOIN "content_attributes" ON ("content"."id" = "contentId") WHERE "contentClass" = ? and "key" = ? and "value" = ? '.$orderby.$limit);
       $stm->execute(array('\Skel\Post', 'category', $category));
     }
     $posts = $this->getContentData($stm);
@@ -120,11 +120,11 @@ trait CmsTraitSqlite {
     $placeholders = array();
     for($i = 0; $i < count($data); $i++) $placeholders[] = '?';
     if (!$id) {
-      $stm = $this->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($data)).'") VALUES ('.implode(',',$placeholders).')');
+      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($data)).'") VALUES ('.implode(',',$placeholders).')');
       $stm->execute(array_values($data));
-      $id = $this->lastInsertId();
+      $id = $this->db->lastInsertId();
     } else {
-      $stm = $this->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($data)).'" = ? WHERE "id" = ?');
+      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($data)).'" = ? WHERE "id" = ?');
       $stm->execute(array_merge(array_values($data), array($id)));
     }
 
@@ -185,7 +185,7 @@ trait CmsTraitSqlite {
       $placeholders[] = '?';
     }
 
-    $stm = $this->prepare('SELECT "contentId", "address" FROM "content_addresses" WHERE "active" = 1 and "contentId" in ('.implode(',', $placeholders).')');
+    $stm = $this->db->prepare('SELECT "contentId", "address" FROM "content_addresses" WHERE "active" = 1 and "contentId" in ('.implode(',', $placeholders).')');
     $stm->execute($ids);
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -212,7 +212,7 @@ trait CmsTraitSqlite {
       $placeholders[] = '?';
     }
 
-    $stm = $this->prepare('SELECT "contentId", "key", "value" FROM "content_attributes" WHERE "contentId" in ('.implode(',', $placeholders).')');
+    $stm = $this->db->prepare('SELECT "contentId", "key", "value" FROM "content_attributes" WHERE "contentId" in ('.implode(',', $placeholders).')');
     $stm->execute($ids);
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
     $attrs = array();
@@ -246,7 +246,7 @@ trait CmsTraitSqlite {
       $placeholders[] = '?';
     }
 
-    $stm = $this->prepare('SELECT "contentId", "tag" FROM "content_tags" WHERE "contentId" in ('.implode(',', $placeholders).')');
+    $stm = $this->db->prepare('SELECT "contentId", "tag" FROM "content_tags" WHERE "contentId" in ('.implode(',', $placeholders).')');
     $stm->execute($ids);
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
     $tags = array();
@@ -312,20 +312,20 @@ trait CmsTraitSqlite {
 
   protected function saveAddrsForContent(int $id, array $newAddrs) {
     $currentAddrs = array();
-    foreach($this->query('SELECT "address" FROM "content_addresses" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
+    foreach($this->db->query('SELECT "address" FROM "content_addresses" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
       $currentAddrs[] = $row['address'];
     }
 
     foreach($currentAddrs as $addr) {
       if (array_search($addr, $newAddrs) === false) {
-        $stm = $this->prepare('DELETE FROM "content_addresses" WHERE "contentId" = ? and "address" = ?');
+        $stm = $this->db->prepare('DELETE FROM "content_addresses" WHERE "contentId" = ? and "address" = ?');
         $stm->execute(array($id, $addr));
       }
     }
 
     foreach($newAddrs as $addr) {
       if (array_search($addr, $currentAddrs) === false) {
-        $stm = $this->prepare('INSERT INTO "content_addresses" ("address", "contentId") VALUES (?, ?)');
+        $stm = $this->db->prepare('INSERT INTO "content_addresses" ("address", "contentId") VALUES (?, ?)');
         $stm->execute(array($addr, $id));
       }
     }
@@ -335,23 +335,23 @@ trait CmsTraitSqlite {
 
   protected function saveAttrsForContent(int $id, $newAttrs) {
     $currentAttrs = array();
-    foreach($this->query('SELECT "key", "value" FROM "content_attributes" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
+    foreach($this->db->query('SELECT "key", "value" FROM "content_attributes" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
       $currentAttrs[$row['key']] = $row['value'];
     }
 
     foreach($currentAttrs as $k => $v) {
       if (!array_key_exists($k, $newAttrs)) {
-        $stm = $this->prepare('DELETE FROM "content_attributes" WHERE "contentId" = ? and "key" = ?');
+        $stm = $this->db->prepare('DELETE FROM "content_attributes" WHERE "contentId" = ? and "key" = ?');
         $stm->execute(array($id, $k));
       }
     }
 
     foreach($newAttrs as $k => $v) {
       if (!array_key_exists($k, $currentAttrs)) {
-        $stm = $this->prepare('INSERT INTO "content_attributes" ("key", "value", "contentId") VALUES (?, ?, ?)');
+        $stm = $this->db->prepare('INSERT INTO "content_attributes" ("key", "value", "contentId") VALUES (?, ?, ?)');
         $stm->execute(array($k, $v, $id));
       } elseif ($currentAttrs[$k] != $v) {
-        $stm = $this->prepare('UPDATE "content_attributes" SET "value" = ? WHERE "key" = ? and "contentId" = ?');
+        $stm = $this->db->prepare('UPDATE "content_attributes" SET "value" = ? WHERE "key" = ? and "contentId" = ?');
         $stm->execute(array($v, $k, $id));
       }
     }
@@ -360,7 +360,7 @@ trait CmsTraitSqlite {
   }
 
   protected function saveContentForContent(int $id, string $content) {
-    $contentUri = $this->query('SELECT "contentUri" FROM "content" WHERE "id" = '.$id);
+    $contentUri = $this->db->query('SELECT "contentUri" FROM "content" WHERE "id" = '.$id);
     $contentUri = $contentUri->fetch(\PDO::FETCH_ASSOC);
     $contentUri = new Uri($contentUri['contentUri']);
 
@@ -383,20 +383,20 @@ trait CmsTraitSqlite {
 
   protected function saveTagsForContent(int $id, array $newTags) {
     $currentTags = array();
-    foreach($this->query('SELECT "tag" FROM "content_tags" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
+    foreach($this->db->query('SELECT "tag" FROM "content_tags" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
       $currentTags[] = $row['tag'];
     }
 
     foreach($currentTags as $v) {
       if (array_search($v, $newTags) === false) {
-        $stm = $this->prepare('DELETE FROM "content_tags" WHERE "contentId" = ? and "tag" = ?');
+        $stm = $this->db->prepare('DELETE FROM "content_tags" WHERE "contentId" = ? and "tag" = ?');
         $stm->execute(array($id, $v));
       }
     }
 
     foreach($newTags as $v) {
       if (array_search($v, $currentTags) === false) {
-        $stm = $this->prepare('INSERT INTO "content_tags" ("tag", "contentId") VALUES (?, ?)');
+        $stm = $this->db->prepare('INSERT INTO "content_tags" ("tag", "contentId") VALUES (?, ?)');
         $stm->execute(array($v, $id));
       }
     }
@@ -406,21 +406,21 @@ trait CmsTraitSqlite {
 
   protected function upgradeCmsDatabase(int $targetVersion, int $fromVersion) {
     if ($fromVersion < 1 && $targetVersion >= 1) {
-      $this->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "canonicalAddr" TEXT NOT NULL, "contentClass" TEXT NOT NULL DEFAULT \'Content\', "contentType" TEXT NOT NULL DEFAULT \'text/plain; charset=UTF-8\', "contentUri" TEXT NOT NULL, "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "title" TEXT NOT NULL)');
-      $this->exec('CREATE TABLE "content_addresses" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "address" TEXT NOT NULL, "contentId" INTEGER NOT NULL)');
-      $this->exec('CREATE TABLE "content_attributes" ("id" INTEGER PRIMARY KEY NOT NULL, "contentId" INTEGER NOT NULL, "key" TEXT NOT NULL, "value" TEXT DEFAULT NULL)');
-      $this->exec('CREATE TABLE "content_tags" ("id" INTEGER PRIMARY KEY NOT NULL, "contentId" INTEGER NOT NULL, "tag" TEXT NOT NULL)');
+      $this->db->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "canonicalAddr" TEXT NOT NULL, "contentClass" TEXT NOT NULL DEFAULT \'Content\', "contentType" TEXT NOT NULL DEFAULT \'text/plain; charset=UTF-8\', "contentUri" TEXT NOT NULL, "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "title" TEXT NOT NULL)');
+      $this->db->exec('CREATE TABLE "content_addresses" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "address" TEXT NOT NULL, "contentId" INTEGER NOT NULL)');
+      $this->db->exec('CREATE TABLE "content_attributes" ("id" INTEGER PRIMARY KEY NOT NULL, "contentId" INTEGER NOT NULL, "key" TEXT NOT NULL, "value" TEXT DEFAULT NULL)');
+      $this->db->exec('CREATE TABLE "content_tags" ("id" INTEGER PRIMARY KEY NOT NULL, "contentId" INTEGER NOT NULL, "tag" TEXT NOT NULL)');
 
-      $this->exec('CREATE INDEX "tags_content_id_index" ON "content_tags" ("contentId")');
-      $this->exec('CREATE INDEX "tags_index" ON "content_tags" ("tag")');
-      $this->exec('CREATE INDEX "attrs_contentId_index" ON "content_attributes" ("contentId")');
-      $this->exec('CREATE INDEX "attrs_key_index" ON "content_attributes" ("key")');
-      $this->exec('CREATE INDEX "attrs_value_index" ON "content_attributes" ("value")');
-      $this->exec('CREATE INDEX "addrs_address_index" ON "content_addresses" ("address")');
-      $this->exec('CREATE INDEX "addrs_contentId_index" ON "content_addresses" ("contentId")');
-      $this->exec('CREATE INDEX "content_dateCreated_index" ON "content" ("dateCreated")');
-      $this->exec('CREATE INDEX "content_dateUpdated_index" ON "content" ("dateUpdated")');
-      $this->exec('CREATE INDEX "content_lang_index" ON "content" ("lang")');
+      $this->db->exec('CREATE INDEX "tags_content_id_index" ON "content_tags" ("contentId")');
+      $this->db->exec('CREATE INDEX "tags_index" ON "content_tags" ("tag")');
+      $this->db->exec('CREATE INDEX "attrs_contentId_index" ON "content_attributes" ("contentId")');
+      $this->db->exec('CREATE INDEX "attrs_key_index" ON "content_attributes" ("key")');
+      $this->db->exec('CREATE INDEX "attrs_value_index" ON "content_attributes" ("value")');
+      $this->db->exec('CREATE INDEX "addrs_address_index" ON "content_addresses" ("address")');
+      $this->db->exec('CREATE INDEX "addrs_contentId_index" ON "content_addresses" ("contentId")');
+      $this->db->exec('CREATE INDEX "content_dateCreated_index" ON "content" ("dateCreated")');
+      $this->db->exec('CREATE INDEX "content_dateUpdated_index" ON "content" ("dateUpdated")');
+      $this->db->exec('CREATE INDEX "content_lang_index" ON "content" ("lang")');
     }
   }
 
@@ -429,7 +429,7 @@ trait CmsTraitSqlite {
   protected function validateContentData(int $id=null, $newData) {
     $valid = true;
     if ($id) {
-      $stm = $this->query('SELECT * FROM "content" WHERE "id" = '.$id);
+      $stm = $this->db->query('SELECT * FROM "content" WHERE "id" = '.$id);
       $data = $stm->fetchAll(\PDO::FETCH_ASSOC);
       $data = $this->attachAddressesToContent($data);
       $data = $this->attachAttributesToContent($data);
@@ -449,7 +449,7 @@ trait CmsTraitSqlite {
 
     // Validate Post Title and Category
     if ($data['contentClass'] == 'Post') {
-      $stm = $this->prepare('SELECT "id" FROM "content" WHERE "title" = ? and "category" = ? and "id" != ?');
+      $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "title" = ? and "category" = ? and "id" != ?');
       $stm->execute(array($data['title'], $data['attributes']['category'], $id ?: 0));
       $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
       if (count($rows) > 0) {
@@ -460,7 +460,7 @@ trait CmsTraitSqlite {
 
     // Validate Addresses
     foreach($data['addresses'] as $a) {
-      $stm = $this->prepare('SELECT "contentId" FROM "content_addresses" WHERE "address" = ? and "contentId" != ?');
+      $stm = $this->db->prepare('SELECT "contentId" FROM "content_addresses" WHERE "address" = ? and "contentId" != ?');
       $stm->execute(array($a, $id ?: 0));
       $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
       if (count($rows) > 0) {
