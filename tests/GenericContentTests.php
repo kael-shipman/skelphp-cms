@@ -7,17 +7,17 @@ getDb(true);
 class GenericContentTests extends TestCase {
   public function testCanCreateDefaultContent() {
     try {
-      $c = new \Skel\Content();
+      $c = new \Skel\Content(getDb());
       $this->assertTrue($c->getActive(), "Content should be 'active' by default");
       $this->assertNull($c->getTitle(), "Content title should default to null");
       $this->assertNull($c->getCanonicalAddr(), "Content canonical id should default to null");
-      $this->assertEquals('Content', $c->getContentClass(), "Content class should default to 'Content'");
+      $this->assertEquals('\Skel\Content', $c->getContentClass(), "Content class should default to '\Skel\Content'");
       $this->assertEquals('text/plain; charset=UTF-8', $c->getContentType(), "Content type should default to 'text/plain; charset=UTF-8'");
       $this->assertNull($c->getContentUri(), "Content Uri should default to null");
       $this->assertEquals((new \DateTime())->format('Y-m-d'), $c->getDateCreated()->format('Y-m-d'), "Content created date should default to today");
       $this->assertEquals((new \DateTime())->format('Y-m-d'), $c->getDateUpdated()->format('Y-m-d'), "Content updated date should default to today");
       $this->assertNull($c->getDateExpired(), "Content expiration date should default to null");
-      $this->assertEquals('en', $c->getLang(), "Content language should default to english");
+      $this->assertNull($c->getLang(), "Content language should default to null (which is invalid)");
       $this->assertEquals('', $c->getContent(), "Content should default to empty string");
       $this->assertEquals(array(), $c->getAttributes(), "Content attributes should default to empty array");
       $this->assertEquals(array(), $c->getTags(), "Content tags should default to empty array");
@@ -53,29 +53,10 @@ class GenericContentTests extends TestCase {
     }
   }
 
-  public function testThrowsExceptionOnSaveWithoutDb() {
-    try {
-      $c = $this->getTestContent();
-      $c->save();
-      $this->fail("Should have thrown exception on save without db");
-    } catch (PHPUnit_Framework_AssertionFailedError $e) {
-      throw $e;
-    } catch (Exception $e) {
-      $this->assertTrue(true);
-    }
-  }
-
-  public function testCanAttachDatasourceToContent() {
-    $c = new \Skel\Content();
-    $c->setDatasource(getDb());
-    $this->assertTrue(true);
-  }
-
   public function testCantSaveWithDefaults() {
     try {
       $db = getDb();
-      $c = new \Skel\Content();
-      $c->setDatasource($db);
+      $c = new \Skel\Content($db);
       $c->save();
       $this->fail("Should have thrown exception on save with defaults");
     } catch (PHPUnit_Framework_AssertionFailedError $e) {
@@ -88,11 +69,17 @@ class GenericContentTests extends TestCase {
   public function testCanSaveNewContent() {
     $db = getDb(true);
     $c = $this->getTestContent();
-    $c->setDatasource($db);
 
     $this->assertNull($c->getId());
 
-    $c->save();
+    try {
+      $c->save();
+    } catch (\Skel\InvalidContentException $e) {
+      throw new \Skel\InvalidContentException(implode(" ", $db->getCmsErrors()));
+    } catch (\Skel\InvalidDataException $e) {
+      throw new \Skel\InvalidDataException(implode(" ", $c->getErrors()));
+    }
+
     $data = $db->getContentDataWhere('"title" = ?', array('Test'));
 
     $this->assertTrue(count($data) == 1, "Database should only have returned one result for content with title 'Test'");
@@ -103,7 +90,7 @@ class GenericContentTests extends TestCase {
     $this->assertEquals(0, $data['active'], "Active should have been set to false");
     $this->assertEquals('Test', $data['title'], "Title should have been set to 'Test'");
     $this->assertEquals('/about/me', $data['canonicalAddr'], "Canonical Id Should have been set to '/about/me'");
-    $this->assertEquals('Content', $data['contentClass'], "Content class should be 'Content'");
+    $this->assertEquals('\Skel\Content', $data['contentClass'], "Content class should be 'Content'");
     $this->assertEquals('text/markdown; charset=UTF-8', $data['contentType'], "Content type should be 'text/markdown; charset=UTF-8'");
     $this->assertEquals('file://pages/about/me.md', $data['contentUri'], "Content URI was not set correctly");
     $this->assertEquals("2016-11-01T18:00:00-0500", $data['dateCreated'], "Date created was not set correctly");
@@ -119,11 +106,10 @@ class GenericContentTests extends TestCase {
   public function testCanCreateFromData() {
     $db = getDb(true);
     $c = $this->getTestContent();
-    $c->setDatasource($db);
     $c->save();
     $data = $db->getContentDataWhere('"title" = ?', array('Test'));
 
-    $d = new \Skel\Content($data[0]);
+    $d = new \Skel\Content($db, $data[0]);
 
     $this->assertEquals($c->getId(), $d->getId(), "Error getting Id from data");
     $this->assertEquals($c->getActive(), $d->getActive(), "Error getting Active from data");
@@ -159,12 +145,12 @@ class GenericContentTests extends TestCase {
   // Utilities
 
   protected function getTestContent() {
-    $c = new \Skel\Content();
+    $c = new \Skel\Content(getDb());
     $c
       ->setActive(false)
       ->setTitle('Test')
       ->setCanonicalAddr('/about/me')
-      ->setContentClass('Content')
+      ->setContentClass('\Skel\Content')
       ->setContentType('text/markdown; charset=UTF-8')
       ->setContentUri(new \Skel\Uri("file://pages/about/me.md"))
       ->setDateCreated(\DateTime::createFromFormat(\DateTime::ISO8601, '2016-11-01T18:00:00-0500'))

@@ -9,10 +9,26 @@ require_once $path.'/vendor/skel/db/Db.php';
 require_once $path.'/vendor/skel/uri/Uri.php';
 require_once $path.'/Content.php';
 require_once $path.'/Post.php';
-require_once $path.'/DataTraits.php';
+require_once $path.'/CmsTraitSqlite.php';
+
+class Benchmark {
+  protected static $checkpoints = array();
+
+  public static function check(string $msg) {
+    static::$checkpoints[] = microtime(true);
+    $n = count(static::$checkpoints)-1;
+    if ($n == 0) echo "\n$msg: Init";
+    else {
+      $time = static::$checkpoints[$n] - static::$checkpoints[$n-1];
+      if ($time > 60) $time = floor($time/60).'m '.round($time%60, 2).'s';
+      else $time = round($time,2).'s';
+      echo "\n$msg: ".$time;
+    }
+  }
+}
 
 class TestDb extends \Skel\Db implements \Skel\Interfaces\CmsDb {
-  use \Skel\CmsDbSqlite;
+  use \Skel\CmsTraitSqlite;
 
   const VERSION = 1;
 
@@ -58,5 +74,19 @@ function getDb(bool $fresh=false) {
   return $db;
 }
 
+
+\Skel\Post::setValidCategories(array('writings', 'photography', 'music'));
+
+
+// A class to test the ContentClass error mechanism
+// ContentClasses should descened from `\Skel\Content`. Since this one doesn't it should
+// throw an error when used.
+
+class NondescendentContentClass {
+  function __construct($db, $data=null) {
+  }
+}
+
+Benchmark::check("Starting");
 
 ?>

@@ -9,7 +9,7 @@ namespace Skel;
  *
  * @known_direct_subclasses Page
  * */
-class Content {
+class Content implements Interfaces\Content {
   protected $active;
   protected $addresses = array();
   protected $attributes = array();
@@ -26,21 +26,22 @@ class Content {
   protected $tags = array();
   protected $title;
 
-  protected $db;
+  protected $cms;
   protected $rawData;
   protected $changes = array();
   protected $errors = array();
 
-  public function __construct(array $sourceData=null) {
-    $defaults = array('active' => 1, 'addresses' => array(), 'attributes' => array(), 'canonicalAddr' => null, 'contentClass' => 'Content', 'contentType' => 'text/plain; charset=UTF-8', 'contentUri' => null, 'dateCreated' => (new \DateTime())->format(\DateTime::ISO8601), 'dateExpired' => null, 'dateUpdated' => (new \DateTime())->format(\DateTime::ISO8601), 'id' => null, 'lang' => 'en', 'tags' => array(), 'title' => null);
+  public function __construct(Interfaces\CmsDb $cms, array $sourceData=null) {
+    $this->cms = $cms;
+    $defaults = array('active' => 1, 'addresses' => array(), 'attributes' => array(), 'canonicalAddr' => null, 'contentClass' => '\Skel\Content', 'contentType' => 'text/plain; charset=UTF-8', 'contentUri' => null, 'dateCreated' => (new \DateTime())->format(\DateTime::ISO8601), 'dateExpired' => null, 'dateUpdated' => (new \DateTime())->format(\DateTime::ISO8601), 'id' => null, 'lang' => null, 'tags' => array(), 'title' => null);
 
     // If building from data, make sure the source data is complete
     if ($sourceData) {
       $missing = array();
       foreach($defaults as $f => $v) {
-        if (!isset($sourceData[$f])) $missing[] = $f;
+        if (!array_key_exists($f, $sourceData)) $missing[] = $f;
       }
-      if (count($missing) > 0) throw new InvalidDataException("Data passed into the Content constructor must have all of the fields required by Content. Missing fields: `".implode('`, `', $missing));
+      if (count($missing) > 0) throw new InvalidDataException("Data passed into the Content constructor must have all of the fields required by Content. Missing fields: `".implode('`, `', $missing)."`.");
       $data = $sourceData;
     } else {
       $data = $defaults;
@@ -78,19 +79,16 @@ class Content {
 
 
   public function save() {
-    if (!$this->db) throw new \RuntimeException("You must set a datasource using `setDatasource` before attempting to persist changes");
-
     if (count($this->changes) === 0) return true;
-    if (count($this->errors) > 0) throw new InvalidDataException("There are errors preventing this object from being saved. Use `getErrors` to retrieve them in an array.");
+    if (count($this->errors) > 0) throw new InvalidDataException("There are errors preventing this object from being saved. Please use `getErrors` on the Content object to show them to the user.");
 
     $data = array();
     foreach($this->changes as $field => $prevVal) $data[$field] = $this->rawData[$field];
-    $id = $this->db->saveContentData($this->id, $data);
-    if (!$this->id) $this->id = $id;
-  }
 
-  public function setDatasource(Interfaces\Db $db) {
-    $this->db = $db;
+    $id = $this->cms->saveContentData($this->id, $data);
+    if (!$this->id) $this->id = $id;
+
+    return $this;
   }
 
 
@@ -106,13 +104,13 @@ class Content {
    * ************************/
 
   protected function set($field, $val) {
-    if (!isset($this->changes[$field])) $this->changes[$field] = array();
+    if (!array_key_exists($field, $this->changes)) $this->changes[$field] = array();
     $this->changes[$field][] = $this->rawData[$field];
     $this->rawData[$field] = $val;
   }
 
   public function setActive($newVal) {
-    if (!is_bool($newVal) && !is_numeric($newVal)) $this->setError('active', 'The Active flag must evaluate to true or false');
+    if (!is_bool($newVal) && !is_numeric($newVal)) $this->setError('active', 'The Active flag must evaluate to true or false.');
     else $this->clearError('active');
 
     $this->set('active', (int) $newVal);
@@ -121,7 +119,7 @@ class Content {
   }
 
   public function setAttribute(string $key, $newVal) {
-    if (isset($this->attributes[$key]) && $this->attributes[$key] == $newVal) return $this;
+    if (array_key_exists($key, $this->attributes) && $this->attributes[$key] == $newVal) return $this;
 
     $this->attributes[$key] = $newVal;
     $this->set('attributes', $this->attributes);
@@ -129,14 +127,14 @@ class Content {
   }
 
   public function removeAttribute(string $key) {
-    if (!isset($this->attributes[$key])) return $this;
+    if (!array_key_exists($key, $this->attributes)) return $this;
     unset($this->attributes[$key]);
     $this->set('attributes', $this->attributes);
     return $this;
   }
 
   public function setCanonicalAddr(string $newVal=null) {
-    if (!$newVal) $this->setError('canonicalAddr', 'The Canonical Address is required');
+    if (!$newVal) $this->setError('canonicalAddr', 'The Canonical Address is required.');
     else $this->clearError('canonicalAddr');
 
     $this->set('canonicalAddr', $newVal);
@@ -145,7 +143,7 @@ class Content {
   }
 
   public function setContentClass(string $newVal=null) {
-    if (!$newVal) $this->setError('contentClass', 'You must specify a valid Content Class for this content');
+    if (!$newVal) $this->setError('contentClass', 'You must specify a valid Content Class for this content.');
     else $this->clearError('contentClass');
 
     $this->set('contentClass', $newVal);
@@ -154,7 +152,7 @@ class Content {
   }
 
   public function setContent(string $newVal=null) {
-    if (!$newVal) $this->setError('content', 'You\'ve gotta set some content');
+    if (!$newVal) $this->setError('content', 'You\'ve gotta set some content.');
     else $this->clearError('content');
 
     $this->set('content', $newVal);
@@ -163,7 +161,7 @@ class Content {
   }
 
   public function setContentType(string $newVal=null) {
-    if (!$newVal) $this->setError('contentType', 'You must specifiy a valid Content Type for this content');
+    if (!$newVal) $this->setError('contentType', 'You must specifiy a valid Content Type for this content.');
     else $this->clearError('contentType');
 
     $this->set('contentType', $newVal);
@@ -172,7 +170,7 @@ class Content {
   }
 
   public function setContentUri(Interfaces\Uri $newVal=null) {
-    if (!$newVal) $this->setError('contentUri', 'You must specifiy a valid Content Uri for this content');
+    if (!$newVal) $this->setError('contentUri', 'You must specifiy a valid Content Uri for this content.');
     else $this->clearError('contentUri');
 
     $this->set('contentUri', ($newVal ? $newVal->toString() : null));
@@ -200,7 +198,10 @@ class Content {
     return $this;
   }
 
-  public function setLang(string $newVal='en') {
+  public function setLang(string $newVal=null) {
+    if (!$newVal || strlen($newVal) != 2) $this->setError('lang', 'You must specify a two-letter ISO 639-1 language code for your content.');
+    else $this->clearError('lang');
+
     $this->set('lang', $newVal);
     $this->lang = $newVal;
     return $this;
@@ -209,6 +210,8 @@ class Content {
   public function addAddress(string $newVal) {
     if (substr($newVal,0,1) != '/') $newVal = "/$newVal";
     $a = $this->addresses;
+
+    if (!$this->canonicalAddr) $this->setCanonicalAddr($newVal);
     if (array_search($newVal, $a) !== false) return $this;
 
     $a[] = $newVal;
@@ -241,7 +244,7 @@ class Content {
   }
 
   public function setTitle(string $newVal=null) {
-    if (!$newVal) $this->setError('title', 'You must specifiy a valid Title for this content');
+    if (!$newVal) $this->setError('title', 'You must specifiy a valid Title for this content.');
     else $this->clearError('title');
 
     $this->set('title', $newVal);
@@ -269,20 +272,9 @@ class Content {
 
 
 
-  public static function upgradeDatabase(int $targetVersion, int $fromVersion, Interfaces\Db $db) {
-    /*
-    if ($fromVersion < 1 && $targetVersion >= 1) {
-      $db->exec('CREATE TABLE "'.\Skel\Content::CONTENT_TABLE_NAME.'" ('.implode(', '$this->getFields(\Skel\Content::CONTENT_TABLE_NAME)).')');
-      $db->exec('CREATE TABLE "'.\Skel\Content::ALIAS_TABLE_NAME.'" ('.implode(', '$this->getFields(\Skel\Content::ALIAS_TABLE_NAME)).')');
-      $db->exec('CREATE TABLE "'.\Skel\Content::ATTRS_TABLE_NAME.'" ('.implode(', '$this->getFields(\Skel\Content::ATTRS_TABLE_NAME)).')');
-      $db->exec('CREATE TABLE "'.\Skel\Content::TAGS_TABLE_NAME.'" ('.implode(', '$this->getFields(\Skel\Content::TAGS_TABLE_NAME)).')');
-    }
-     */
-  }
-
   public function undoChange(string $table, string $field) {
     $key = "$table.$field";
-    if (!isset($this->changes[$key]) || count($this->changes[$key]) == 0) return false;
+    if (!array_key_exists($key, $this->changes) || count($this->changes[$key]) == 0) return false;
     $this->data[$key] = array_pop($this->changes[$key]);
     return true;
   }
@@ -308,7 +300,7 @@ class Content {
   public function getActive() { return $this->active; }
   public function getAddresses() { return $this->addresses; }
   public function getAttribute(string $key, $defaultValue=null) {
-    if (isset($this->attributes[$key])) return $this->attributes[$key];
+    if (array_key_exists($key, $this->attributes)) return $this->attributes[$key];
     else return $defaultValue;
   }
   public function getAttributes() { return $this->attributes; }
