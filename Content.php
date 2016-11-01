@@ -75,6 +75,15 @@ class Content implements Interfaces\Content {
     }
   }
 
+  public function createSlug(string $str) {
+    $str = strtolower($str);
+    $str = str_replace(array('—', '–', ' - ', ' -- ', ' '), '-', $str);
+    //TODO: Complete this list of common foreign special chars
+    $str = str_replace(array('á','é','í','ó','ú','ñ'), array('a','e','i','o','u','n'), $str);
+    $str = preg_replace('/[^a-zA-Z0-9_-]/', '', $str);
+    return $str;
+  }
+
 
 
 
@@ -118,17 +127,59 @@ class Content implements Interfaces\Content {
     return $this;
   }
 
-  public function setAttribute(string $key, $newVal) {
-    if (array_key_exists($key, $this->attributes) && $this->attributes[$key] == $newVal) return $this;
+  public function setAttribute(string $key, $newVal, bool $multivalue=false) {
+    if (array_key_exists($key, $this->attributes)) {
+      // If we're allowing multiple values
+      if ($multivalue) {
+        // If we've passed an array, just replace the current value
+        if (is_array($newVal)) {
+          $this->attributes[$key] = $newVal;
+          return $this;
+        }
+
+        // We've passed a string
+
+        // If old value is also a string, take appropriate action
+        if (is_string($this->attributes[$key])) {
+          // If new value is string and old value is string and they're the same, just return
+          if ($this->attributes[$key] == $newVal) return $this;
+
+          // If values are unequal strings and we're permitting multivalues, convert to array
+          else $this->attributes[$key] = array($this->attributes[$key], $newVal);
+
+        // If old value is an array, add new value, if not already present
+        } else {
+          // If new value is already in collection, just return
+          if (array_search($newVal, $this->attributes[$key]) !== false) return $this;
+
+          // If new value ISN'T in it, add it
+          else $this->attributes[$key][] = $newVal;
+        }
+      } else {
+        if ($this->attributes[$key] == $newVal) return $this;
+      }
+    }
+      
 
     $this->attributes[$key] = $newVal;
     $this->set('attributes', $this->attributes);
     return $this;
   }
 
-  public function removeAttribute(string $key) {
+  public function removeAttribute(string $key, $valToRemove=null) {
     if (!array_key_exists($key, $this->attributes)) return $this;
-    unset($this->attributes[$key]);
+    if ($valToRemove !== null) {
+      if (is_string($this->attributes[$key])) {
+        if ($this->attributes[$key] == $valToRemove) unset($this->attributes[$key]);
+        else return $this;
+      } else {
+        if (($k = array_search($valToRemove, $this->attributes[$key])) !== false) unset($this->attributes[$key][$k]);
+        else return $this;
+      }
+    } else {
+      unset($this->attributes[$key]);
+    }
+
     $this->set('attributes', $this->attributes);
     return $this;
   }

@@ -1,36 +1,9 @@
 <?php
 namespace Skel;
 
-trait CmsTraitSqlite {
-  protected static $validContentClasses = array('\Skel\Content' => '\Skel\Content', '\Skel\Post' => '\Skel\Post');
-  protected $contentDir;
-  protected $cmsErrors = array();
-
-  public function createImgPrefix(Interfaces\Post $post) {
-    $prefix = $post->getDateCreated()->format('Y-m-');
-    $words = explode(' ',$post->getTitle());
-    if (count($words) <= 3) return $prefix.$this->createSlug(implode('-', $words));
-
-    $bigWords = array();
-    foreach($words as $w) {
-      if (strlen($w) > 3 || is_numeric($w)) {
-        $bigWords[] = $w;
-        if (count($bigWords) == 3) break;
-      }
-    }
-
-    return $prefix.$this->createSlug(implode('-', $bigWords));
-  }
-
-  public function createSlug(string $str) {
-    $str = strtolower($str);
-    $str = str_replace(array('—', '–', ' - ', ' -- ', ' '), '-', $str);
-    //TODO: Complete this list of common foreign special chars
-    $str = str_replace(array('á','é','í','ó','ú','ñ'), array('a','e','i','o','u','n'), $str);
-    $str = preg_replace('/[^a-zA-Z0-9_-]/', '', $str);
-    return $str;
-  }
-
+class CmsDb extends Db implements Interfaces\CmsDb {
+  const VERSION = 1;
+  const SCHEMA_NAME = "SkelCms";
 
 
 
@@ -52,7 +25,7 @@ trait CmsTraitSqlite {
   public function getContentByAddress(string $addr) {
     //TODO: Figure out better way to do this. This is janky as hell
 
-    $stm = $this->db->prepare('SELECT "content".* FROM "content" JOIN "content_addresses" ON ("content"."id" = "contentId") WHERE "address" = ?');
+    $stm = $this->db->prepare('SELECT "content".* FROM "content" JOIN "content_addresses" ON ("content"."id" = "contentId") WHERE "content"."active" = 1 and "content_addresses"."active" = 1 and "address" = ?');
     $stm->execute(array($addr));
     $content = $this->getContentData($stm);
     if ($content) $content = $content[0];
@@ -60,7 +33,7 @@ trait CmsTraitSqlite {
   }
 
   public function getContentDataWhere(string $where, array $values=array()) {
-    $stm = $this->db->prepare('SELECT * FROM "content" WHERE '.$where);
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and '.$where);
     $stm->execute($values);
     $rows = $this->getContentData($stm);
     return $rows;
@@ -74,15 +47,18 @@ trait CmsTraitSqlite {
     $orderby = 'ORDER BY "dateCreated" DESC ';
     if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
     if (!$category) {
-      $stm = $this->db->prepare('SELECT * FROM "content" WHERE "contentClass" = ? '.$orderby.$limit);
+      $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "contentClass" = ? '.$orderby.$limit);
       $stm->execute(array('\Skel\Post'));
     } else {
-      $stm = $this->db->prepare('SELECT "content".* FROM "content" JOIN "content_attributes" ON ("content"."id" = "contentId") WHERE "contentClass" = ? and "key" = ? and "value" = ? '.$orderby.$limit);
+      $stm = $this->db->prepare('SELECT "content".* FROM "content" JOIN "content_attributes" ON ("content"."id" = "contentId") WHERE "active" = 1 and "contentClass" = ? and "key" = ? and "value" = ? '.$orderby.$limit);
       $stm->execute(array('\Skel\Post', 'category', $category));
     }
     $posts = $this->getContentData($stm);
     return $posts;
   }
+
+
+
 
 
 
@@ -104,54 +80,6 @@ trait CmsTraitSqlite {
 
 
 
-  public function saveContentData(int $id=null, $data) {
-    if (!$this->validateContentData($id, $data)) throw new InvalidContentException("There are errors in your content. Please use `getCmsErrors` on the \Skel\CmsDb object to show these to the user.");
-
-    $freeFields = array('content', 'addresses', 'tags', 'attributes');
-    foreach($freeFields as $f) {
-      if(array_key_exists($f, $data)) {
-        $$f = $data[$f];
-        unset($data[$f]);
-      }
-    }
-
-    if (array_key_exists('id', $data)) unset($data['id']);
-
-    $placeholders = array();
-    for($i = 0; $i < count($data); $i++) $placeholders[] = '?';
-    if (!$id) {
-      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($data)).'") VALUES ('.implode(',',$placeholders).')');
-      $stm->execute(array_values($data));
-      $id = $this->db->lastInsertId();
-    } else {
-      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($data)).'" = ? WHERE "id" = ?');
-      $stm->execute(array_merge(array_values($data), array($id)));
-    }
-
-    if ($content) $this->saveContentForContent($id, $content);
-    if ($addresses) $this->saveAddrsForContent($id, $addresses);
-    if ($tags) $this->saveTagsForContent($id, $tags);
-    if ($attributes) $this->saveAttrsForContent($id, $attributes);
-
-    return $id;
-  }
-
-  public static function setValidContentClasses(array $classes) {
-    $valid = array();
-    foreach($classes as $k => $c) {
-      if (is_numeric($k)) $valid[$c] = $c;
-      else $valid[$k] = $c;
-    }
-    static::$validContentClasses = $valid;
-  }
-
-
-
-
-
-
-
-
 
   /********************
    * Errors
@@ -168,14 +96,9 @@ trait CmsTraitSqlite {
 
 
 
-
-
-
-
   /******************************
    * Internal Functions
    * ***************************/
-
 
   protected function attachAddressesToContent(array $data) {
     $ids = array();
@@ -185,7 +108,7 @@ trait CmsTraitSqlite {
       $placeholders[] = '?';
     }
 
-    $stm = $this->db->prepare('SELECT "contentId", "address" FROM "content_addresses" WHERE "active" = 1 and "contentId" in ('.implode(',', $placeholders).')');
+    $stm = $this->db->prepare('SELECT "contentId", "address" FROM "content_addresses" WHERE "contentId" in ('.implode(',', $placeholders).')');
     $stm->execute($ids);
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -266,9 +189,10 @@ trait CmsTraitSqlite {
 
 
 
-  protected function downgradeCmsDatabase(int $targetVersion, int $fromVersion) {
-  }
 
+  protected function downgradeDatabase(int $targetVersion, int $fromVersion) {
+    // Nothing to downgrade yet
+  }
 
 
   protected function getContentData(\PDOStatement $stm) {
@@ -403,8 +327,40 @@ trait CmsTraitSqlite {
   }
 
 
+  public function saveContentData(int $id=null, $data) {
+    if (!$this->validateContentData($id, $data)) throw new InvalidContentException("There are errors in your content. Please use `getCmsErrors` on the \Skel\CmsDb object to show these to the user.");
 
-  protected function upgradeCmsDatabase(int $targetVersion, int $fromVersion) {
+    $freeFields = array('content', 'addresses', 'tags', 'attributes');
+    foreach($freeFields as $f) {
+      if(array_key_exists($f, $data)) {
+        $$f = $data[$f];
+        unset($data[$f]);
+      }
+    }
+
+    if (array_key_exists('id', $data)) unset($data['id']);
+
+    $placeholders = array();
+    for($i = 0; $i < count($data); $i++) $placeholders[] = '?';
+    if (!$id) {
+      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($data)).'") VALUES ('.implode(',',$placeholders).')');
+      $stm->execute(array_values($data));
+      $id = $this->db->lastInsertId();
+    } else {
+      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($data)).'" = ? WHERE "id" = ?');
+      $stm->execute(array_merge(array_values($data), array($id)));
+    }
+
+    if ($content) $this->saveContentForContent($id, $content);
+    if ($addresses) $this->saveAddrsForContent($id, $addresses);
+    if ($tags) $this->saveTagsForContent($id, $tags);
+    if ($attributes) $this->saveAttrsForContent($id, $attributes);
+
+    return $id;
+  }
+
+
+  protected function upgradeDatabase(int $targetVersion, int $fromVersion) {
     if ($fromVersion < 1 && $targetVersion >= 1) {
       $this->db->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "canonicalAddr" TEXT NOT NULL, "contentClass" TEXT NOT NULL DEFAULT \'Content\', "contentType" TEXT NOT NULL DEFAULT \'text/plain; charset=UTF-8\', "contentUri" TEXT NOT NULL, "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "title" TEXT NOT NULL)');
       $this->db->exec('CREATE TABLE "content_addresses" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "address" TEXT NOT NULL, "contentId" INTEGER NOT NULL)');
@@ -423,52 +379,5 @@ trait CmsTraitSqlite {
       $this->db->exec('CREATE INDEX "content_lang_index" ON "content" ("lang")');
     }
   }
-
-
-
-  protected function validateContentData(int $id=null, $newData) {
-    $valid = true;
-    if ($id) {
-      $stm = $this->db->query('SELECT * FROM "content" WHERE "id" = '.$id);
-      $data = $stm->fetchAll(\PDO::FETCH_ASSOC);
-      $data = $this->attachAddressesToContent($data);
-      $data = $this->attachAttributesToContent($data);
-      $data = $this->attachContentToContent($data);
-      $data = $this->attachTagsToContent($data);
-
-      $data = array_replace($data[0], $newData);
-    } else {
-      $data = $newData;
-    }
-
-    // Validate ContentClass
-    if (!array_key_exists($data['contentClass'], static::$validContentClasses)) {
-      $this->setCmsError('contentClass', "The specified content class `$data[contentClass]` is not one of the currently designated valid content classes (`".implode('`, `', static::$validContentClasses)."`).");
-      $valid = false;
-    }
-
-    // Validate Post Title and Category
-    if ($data['contentClass'] == 'Post') {
-      $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "title" = ? and "category" = ? and "id" != ?');
-      $stm->execute(array($data['title'], $data['attributes']['category'], $id ?: 0));
-      $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
-      if (count($rows) > 0) {
-        $this->setCmsError('title', 'There is already a post with the given title and category in the database. Please choose either a different title or a different category.');
-        $valid = false;
-      }
-    }
-
-    // Validate Addresses
-    foreach($data['addresses'] as $a) {
-      $stm = $this->db->prepare('SELECT "contentId" FROM "content_addresses" WHERE "address" = ? and "contentId" != ?');
-      $stm->execute(array($a, $id ?: 0));
-      $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
-      if (count($rows) > 0) {
-        $this->setCmsError('addresses', 'The address you specified for this content ('.$a.') is already being used by other content.');
-        $valid = false;
-      }
-    }
-
-    return $valid;
-  }
 }
+
