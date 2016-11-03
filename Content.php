@@ -11,9 +11,8 @@ namespace Skel;
  * */
 class Content implements Interfaces\Content {
   protected $active;
-  protected $addresses = array();
-  protected $attributes = array();
-  protected $canonicalAddr;
+  protected $address;
+  protected $canonicalId;
   protected $content;
   protected $contentClass;
   protected $contentType;
@@ -26,56 +25,36 @@ class Content implements Interfaces\Content {
   protected $tags = array();
   protected $title;
 
-  protected $cms;
   protected $rawData;
   protected $changes = array();
   protected $errors = array();
 
-  public function __construct(Interfaces\CmsDb $cms, array $sourceData=null) {
-    $this->cms = $cms;
-    $defaults = array('active' => 1, 'addresses' => array(), 'attributes' => array(), 'canonicalAddr' => null, 'contentClass' => '\Skel\Content', 'contentType' => 'text/plain; charset=UTF-8', 'contentUri' => null, 'dateCreated' => (new \DateTime())->format(\DateTime::ISO8601), 'dateExpired' => null, 'dateUpdated' => (new \DateTime())->format(\DateTime::ISO8601), 'id' => null, 'lang' => null, 'tags' => array(), 'title' => null);
+  public function __construct(array $data=array()) {
 
-    // If building from data, make sure the source data is complete
-    if ($sourceData) {
-      $missing = array();
-      foreach($defaults as $f => $v) {
-        if (!array_key_exists($f, $sourceData)) $missing[] = $f;
-      }
-      if (count($missing) > 0) throw new InvalidDataException("Data passed into the Content constructor must have all of the fields required by Content. Missing fields: `".implode('`, `', $missing)."`.");
-      $data = $sourceData;
-    } else {
-      $data = $defaults;
-    }
-
-    // Set fields
-    $this->id = $data['id'];
     $this
       ->setActive((bool) $data['active'])
-      ->setCanonicalAddr($data['canonicalAddr'])
+      ->setAddress($data['address'])
+      ->setCanonicalId($data['canonicalId'])
       ->setContent($data['content'])
-      ->setContentClass($data['contentClass'])
+      ->setContentClass($data['contentClass'] ?: $this->getNormalizedClassName())
       ->setContentType($data['contentType'])
       ->setContentUri($data['contentUri'] ? new Uri($data['contentUri']) : null)
       ->setDateCreated($data['dateCreated'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateCreated']) : null)
       ->setDateExpired($data['dateExpired'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateExpired']) : null)
       ->setDateUpdated($data['dateUpdated'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateUpdated']) : null)
+      ->setId($data['id'])
       ->setLang($data['lang'])
       ->setTitle($data['title'])
     ;
 
-    // Add lists
-    foreach($data['addresses'] as $addr) $this->addAddress($addr);
-    foreach($data['attributes'] as $k => $v) $this->setAttribute($k, $v);
+    // Add tags
     foreach($data['tags'] as $tag) $this->addTag($tag);
 
     // If we're building from data, consider this a fresh, unchanged object
-    if ($sourceData) {
-      $this->errors = array();
-      $this->changed = array();
-    }
+    if (count($data) > 0) $this->changes = array();
   }
 
-  public function createSlug(string $str) {
+  public static function createSlug(string $str) {
     $str = strtolower($str);
     $str = str_replace(array('—', '–', ' - ', ' -- ', ' '), '-', $str);
     //TODO: Complete this list of common foreign special chars
@@ -84,21 +63,6 @@ class Content implements Interfaces\Content {
     return $str;
   }
 
-
-
-
-  public function save() {
-    if (count($this->changes) === 0) return true;
-    if (count($this->errors) > 0) throw new InvalidDataException("There are errors preventing this object from being saved. Please use `getErrors` on the Content object to show them to the user.");
-
-    $data = array();
-    foreach($this->changes as $field => $prevVal) $data[$field] = $this->rawData[$field];
-
-    $id = $this->cms->saveContentData($this->id, $data);
-    if (!$this->id) $this->id = $id;
-
-    return $this;
-  }
 
 
 
@@ -112,170 +76,93 @@ class Content implements Interfaces\Content {
    * Setters
    * ************************/
 
-  protected function set($field, $val) {
+  protected function setData($field, $val) {
     if (!array_key_exists($field, $this->changes)) $this->changes[$field] = array();
     $this->changes[$field][] = $this->rawData[$field];
     $this->rawData[$field] = $val;
   }
 
-  public function setActive($newVal) {
-    if (!is_bool($newVal) && !is_numeric($newVal)) $this->setError('active', 'The Active flag must evaluate to true or false.');
-    else $this->clearError('active');
-
-    $this->set('active', (int) $newVal);
+  public function setActive(bool $newVal=true) {
+    $this->setData('active', (int) $newVal);
     $this->active = (bool)$newVal;
+    $this->validate('active');
     return $this;
   }
 
-  public function setAttribute(string $key, $newVal, bool $multivalue=false) {
-    if (array_key_exists($key, $this->attributes)) {
-      // If we're allowing multiple values
-      if ($multivalue) {
-        // If we've passed an array, just replace the current value
-        if (is_array($newVal)) {
-          $this->attributes[$key] = $newVal;
-          return $this;
-        }
-
-        // We've passed a string
-
-        // If old value is also a string, take appropriate action
-        if (is_string($this->attributes[$key])) {
-          // If new value is string and old value is string and they're the same, just return
-          if ($this->attributes[$key] == $newVal) return $this;
-
-          // If values are unequal strings and we're permitting multivalues, convert to array
-          else $this->attributes[$key] = array($this->attributes[$key], $newVal);
-
-        // If old value is an array, add new value, if not already present
-        } else {
-          // If new value is already in collection, just return
-          if (array_search($newVal, $this->attributes[$key]) !== false) return $this;
-
-          // If new value ISN'T in it, add it
-          else $this->attributes[$key][] = $newVal;
-        }
-      } else {
-        if ($this->attributes[$key] == $newVal) return $this;
-      }
-    }
-      
-
-    $this->attributes[$key] = $newVal;
-    $this->set('attributes', $this->attributes);
+  public function setAddress(string $newVal=null) {
+    $this->setData('address', $newVal);
+    $this->address = $newVal;
+    $this->validate('address');
     return $this;
   }
 
-  public function removeAttribute(string $key, $valToRemove=null) {
-    if (!array_key_exists($key, $this->attributes)) return $this;
-    if ($valToRemove !== null) {
-      if (is_string($this->attributes[$key])) {
-        if ($this->attributes[$key] == $valToRemove) unset($this->attributes[$key]);
-        else return $this;
-      } else {
-        if (($k = array_search($valToRemove, $this->attributes[$key])) !== false) unset($this->attributes[$key][$k]);
-        else return $this;
-      }
-    } else {
-      unset($this->attributes[$key]);
-    }
-
-    $this->set('attributes', $this->attributes);
-    return $this;
-  }
-
-  public function setCanonicalAddr(string $newVal=null) {
-    if (!$newVal) $this->setError('canonicalAddr', 'The Canonical Address is required.');
-    else $this->clearError('canonicalAddr');
-
-    $this->set('canonicalAddr', $newVal);
+  public function setCanonicalId(string $newVal=null) {
+    $this->setData('canonicalId', $newVal);
     $this->canonicalAddr = $newVal;
-    return $this;
-  }
-
-  public function setContentClass(string $newVal=null) {
-    if (!$newVal) $this->setError('contentClass', 'You must specify a valid Content Class for this content.');
-    else $this->clearError('contentClass');
-
-    $this->set('contentClass', $newVal);
-    $this->contentClass = $newVal;
+    $this->validate('canonicalId');
     return $this;
   }
 
   public function setContent(string $newVal=null) {
-    if (!$newVal) $this->setError('content', 'You\'ve gotta set some content.');
-    else $this->clearError('content');
-
-    $this->set('content', $newVal);
+    $this->setData('content', $newVal);
     $this->content = $newVal;
+    $this->validate('content');
     return $this;
   }
 
-  public function setContentType(string $newVal=null) {
-    if (!$newVal) $this->setError('contentType', 'You must specifiy a valid Content Type for this content.');
-    else $this->clearError('contentType');
+  public function setContentClass(string $newVal=null) {
+    $this->setData('contentClass', $newVal);
+    $this->contentClass = $newVal;
+    $this->validate('contentClass');
+    return $this;
+  }
 
-    $this->set('contentType', $newVal);
+  public function setContentType(string $newVal='text/plain; charset=UTF-8') {
+    $this->setData('contentType', $newVal);
     $this->contentType = $newVal;
+    $this->validate('contentType');
     return $this;
   }
 
   public function setContentUri(Interfaces\Uri $newVal=null) {
-    if (!$newVal) $this->setError('contentUri', 'You must specifiy a valid Content Uri for this content.');
-    else $this->clearError('contentUri');
-
-    $this->set('contentUri', ($newVal ? $newVal->toString() : null));
+    $this->setData('contentUri', ($newVal ? $newVal->toString() : null));
     $this->contentUri = $newVal;
+    $this->validate('contentUri');
     return $this;
   }
 
   public function setDateCreated(\DateTime $newVal=null) {
     if (!$newVal) $newVal = new \DateTime();
-    $this->set('dateCreated', $newVal->format(\DateTime::ISO8601));
+    $this->setData('dateCreated', $newVal->format(\DateTime::ISO8601));
     $this->dateCreated = $newVal;
+    $this->validate('dateCreated');
     return $this;
   }
 
   public function setDateExpired(\DateTime $newVal=null) {
-    $this->set('dateExpired', ($newVal ? $newVal->format(\DateTime::ISO8601) : null));
+    $this->setData('dateExpired', ($newVal ? $newVal->format(\DateTime::ISO8601) : null));
     $this->dateExpired = $newVal;
+    $this->validate('dateExpired');
     return $this;
   }
 
   public function setDateUpdated(\DateTime $newVal=null) {
     if (!$newVal) $newVal = new \DateTime();
-    $this->set('dateUpdated', $newVal->format(\DateTime::ISO8601));
+    $this->setData('dateUpdated', $newVal->format(\DateTime::ISO8601));
     $this->dateUpdated = $newVal;
+    $this->validate('dateUpdated');
     return $this;
+  }
+
+  public function setId(int $newVal) {
+    if ($this->id && $newVal != $this->id) throw new InvalidDataException("You can't change the id once it's already set!");
+    $this->id = $newVal;
   }
 
   public function setLang(string $newVal=null) {
-    if (!$newVal || strlen($newVal) != 2) $this->setError('lang', 'You must specify a two-letter ISO 639-1 language code for your content.');
-    else $this->clearError('lang');
-
-    $this->set('lang', $newVal);
+    $this->setData('lang', $newVal);
     $this->lang = $newVal;
-    return $this;
-  }
-
-  public function addAddress(string $newVal) {
-    if (substr($newVal,0,1) != '/') $newVal = "/$newVal";
-    $a = $this->addresses;
-
-    if (!$this->canonicalAddr) $this->setCanonicalAddr($newVal);
-    if (array_search($newVal, $a) !== false) return $this;
-
-    $a[] = $newVal;
-    $this->set('addresses', $a);
-    $this->addresses = $a;
-    return $this;
-  }
-
-  public function removeAddress(string $val) {
-    if (substr($val,0,1) != '/') $val = "/$val";
-    if (($key = array_search($val, $this->addresses)) === false) return $this;
-    array_splice($this->addresses, $key, 1);
-    $this->set('addresses', $this->addresses);
+    $this->validate('lang');
     return $this;
   }
 
@@ -283,25 +170,24 @@ class Content implements Interfaces\Content {
     if (array_search($newVal, $this->tags) !== false) return $this;
 
     $this->tags[] = $newVal;
-    $this->set('tags', $this->tags);
+    $this->setData('tags', $this->tags);
     return $this;
   }
 
   public function removeTag(string $val) {
     if (($key = array_search($val, $this->tags)) === false) return $this;
     array_splice($this->tags, $key, 1);
-    $this->set('tags', $this->tags);
+    $this->setData('tags', $this->tags);
     return $this;
   }
 
   public function setTitle(string $newVal=null) {
-    if (!$newVal) $this->setError('title', 'You must specifiy a valid Title for this content.');
-    else $this->clearError('title');
-
-    $this->set('title', $newVal);
+    $this->setData('title', $newVal);
     $this->title = $newVal;
+    $this->validate('title');
     return $this;
   }
+
 
 
 
@@ -337,6 +223,38 @@ class Content implements Interfaces\Content {
     }
   }
 
+  protected function validate(string $field) {
+    $val = $this->$field;
+    $error = null;
+    $required = array(
+      'canonicalId' => 'The Canonical Id is required.',
+      'contentClass' => 'You must specify a valid Content Class for this content.',
+      'content' => 'You\'ve gotta set some content.',
+      'contentType' => 'You must specifiy a valid Content Type for this content.',
+      'contentUri' => 'You must specifiy a valid Content Uri for this content.',
+      'title' => 'You must specifiy a valid Title for this content.',
+    );
+
+    if (array_key_exists($field, $required) && !$val) $error = $required[$field];
+
+    if ($field == 'active') {
+      if (!is_bool($val)) $error = 'Active cannot be null. It must be either true or false.';
+    } elseif ($field == 'lang') {
+      if (!is_string($val) || strlen($val) != 2) $error = 'You must specify a two-letter ISO 639-1 language code for your content.';
+    } elseif ($field == 'contentClass') {
+      if ($val != $this->getNormalizedClassName()) $error = "The classname you've specified is inconsistent with the current Object you're using!";
+    }
+
+    if ($error) {
+      $this->setError($field, $error);
+      return false;
+    } else {
+      $this->clearError($field);
+      return true;
+    }
+  }
+      
+
 
 
 
@@ -349,13 +267,8 @@ class Content implements Interfaces\Content {
    * *************************/
 
   public function getActive() { return $this->active; }
-  public function getAddresses() { return $this->addresses; }
-  public function getAttribute(string $key, $defaultValue=null) {
-    if (array_key_exists($key, $this->attributes)) return $this->attributes[$key];
-    else return $defaultValue;
-  }
-  public function getAttributes() { return $this->attributes; }
-  public function getCanonicalAddr() { return $this->canonicalAddr; }
+  public function getAddress() { return $this->address; }
+  public function getCanonicalId() { return $this->canonicalId; }
   public function getContent() { return $this->content; }
   public function getContentClass() { return $this->contentClass; }
   public function getContentType() { return $this->contentType; }
@@ -365,9 +278,20 @@ class Content implements Interfaces\Content {
   public function getDateUpdated() { return $this->dateUpdated; }
   public function getId() { return $this->id; }
   public function getLang() { return $this->lang; }
-  public function getRawData() { return $this->rawData; }
   public function getTags() { return $this->tags; }
   public function getTitle() { return $this->title; }
+
+  public function getNormalizedClassName() {
+    $str = preg_replace(array('/([A-Z])/', '/_-/'), array('-\1','_'), static::class);
+    return trim(strtolower($str), '-');
+  }
+    
+  public function getChanges() {
+    $changes = array();
+    foreach($this->changes as $k => $prev) $changes[$k] = $this->rawData[$k];
+    return $changes;
+  }
+  public function getRawData() { return $this->rawData; }
 }
 
 

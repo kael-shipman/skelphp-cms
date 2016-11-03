@@ -3,52 +3,31 @@ namespace Skel;
 
 class Post extends Content implements Interfaces\Post {
 
-  protected $author;
   protected $imgPrefix;
-  protected $relationships;
   protected $category;
   protected $hasImg;
 
   protected static $validCategories = array();
+  protected static $__validCategories = array();
 
-  public function __construct(Interfaces\CmsDb $cms, array $sourceData=null) {
-    parent::__construct($cms, $sourceData);
+  public function __construct(array $data=array()) {
+    parent::__construct($data);
 
-    $defaults = array('contentClass' => '\Skel\Post', 'contentType' => 'text/markdown; charset=UTF-8', 'attributes' => array('author' => null, 'imgPrefix' => null, 'category' => null, 'hasImg' => false));
-
-    // If building from data, make sure the source data is complete
-    if ($sourceData) {
-      $missing = array();
-      foreach($defaults as $k => $v) {
-        if (!array_key_exists($k, $sourceData)) $missing[] = $k;
-      }
-      if (count($missing) > 0) throw new InvalidDataException("Data passed into the Post constructor must have all of the fields required by a Post. Missing fields: `".implode('`, `', $missing).'`.');
-      $data = $sourceData;
-    } else {
-      $data = $defaults;
-    }
-
-    // Set fields
     $this
-      ->setContentClass($data['contentClass'])
-      ->setContentType($data['contentType'])
-      ->setAuthor($data['attributes']['author'])
-      ->setImgPrefix($data['attributes']['imgPrefix'])
-      ->setCategory($data['attributes']['category'])
-      ->setHasImg($data['attributes']['category'])
+      ->setContentType($data['contentType'] ?: 'text/markdown; charset=UTF-8')
+      ->setImgPrefix($data['imgPrefix'])
+      ->setCategory($data['category'])
+      ->setHasImg((bool) $data['hasImg'])
     ;
 
     // If we're building from data, consider this a fresh, unchanged object
-    if ($sourceData) {
-      $this->errors = array();
-      $this->changed = array();
-    }
+    if (count($data) > 0) $this->changed = array();
   }
 
-  public function createImgPrefix(Interfaces\Post $post) {
-    $prefix = $post->getDateCreated()->format('Y-m-');
-    $words = explode(' ',$post->getTitle());
-    if (count($words) <= 3) return $prefix.$this->createSlug(implode('-', $words));
+  public function createImgPrefix() {
+    $prefix = $this->getDateCreated()->format('Y-m-');
+    $words = explode(' ',$this->getTitle());
+    if (count($words) <= 3) return $prefix.static::createSlug(implode('-', $words));
 
     $bigWords = array();
     foreach($words as $w) {
@@ -58,7 +37,7 @@ class Post extends Content implements Interfaces\Post {
       }
     }
 
-    return $prefix.$this->createSlug(implode('-', $bigWords));
+    return $prefix.static::createSlug(implode('-', $bigWords));
   }
 
   public function getAuthor() {
@@ -66,6 +45,7 @@ class Post extends Content implements Interfaces\Post {
     else $author = $this->author;
     return $author;
   }
+  public function getCategory() { return $this->category; }
   public function getContentExcerpt(int $words=40) {
     $content = $this->getContent();
     $nonwords = array(9 => true, 10 => true, 13 => true, 32 => true);
@@ -82,18 +62,29 @@ class Post extends Content implements Interfaces\Post {
     }
     return substr($content, 0, $n);
   }
-  public function getHasImg() { return $this->hasImg; }
   public function getImgPrefix() { return $this->imgPrefix; }
-  public function getMainImg() { return $this->mainImg; }
-  public function getCategory() { return $this->category; }
-  public static function getValidCategories() { return static::$validCategories; }
+  public function getMainImgPath() { return $this->hasImg ? '/assets/imgs/'.$this->category.'/'.$this->imgPrefix.'.jpg' : null; }
+  public static function getValidCategories() {
+    if (static::$__validCategories) return static::$__validCategories;
+
+    $cats = static::$validCategories;
+    $parent = static::class;
+    while ($parent = get_parent_class($parent)) $cats = array_merge($cats, $parent::$validCategories ?: array());
+    static::$__validCategories = $cats;
+
+    return static::$__validCategories;
+  }
+  public function hasImg() { return $this->hasImg; }
+
+
+
 
   public function setAuthor(string $val=null) {
     $this->setAttribute('author', $val);
     $this->author = $val;
     return $this;
   }
-  public function setHasImg($val) {
+  public function setHasImg(bool $val) {
     if (!is_bool($val) && !is_numeric($val)) $this->setError('hasImg', 'The HasImg flag must evaluate to true or false.');
     else $this->clearError('hasImg');
 
@@ -119,12 +110,35 @@ class Post extends Content implements Interfaces\Post {
   }
 
   public static function setValidCategories(array $categories) {
-    $cats = array();
-    foreach ($categories as $k => $v) {
-      if (is_numeric($k)) $cats[$v] = $v;
-      else $cats[$k] = $v;
+    static::$validCategories = $categories;
+  }
+
+
+
+  protected function validate(string $field) {
+    $val = $this->$field;
+    $required = array(
+      'imgPrefix' => 'All posts must have an imgPrefix, even if they don\'t have any images',
+      'category' => 'All posts must be assigned to a valid category. Otherwise they won\'t show up anywhere!';
+    );
+
+    if (array_key_exists($field, $required) && !$val) $error = $required[$field];
+
+    if ($field == 'hasImg') {
+      if (!is_bool($val)) $error = 'hasImg must be true or false. It can\'t be null.';
+    } elseif ($field == 'category') {
+      if (array_search($val, static::getValidCategories()) === false) $error = $required[$field];
     }
-    static::$validCategories = $cats;
+
+    if ($error) {
+      $this->setError($field, $error);
+      return false;
+    } else {
+      if (!parent::validate($field)) return false;
+
+      $this->clearError($field);
+      return true;
+    }
   }
 }
 
