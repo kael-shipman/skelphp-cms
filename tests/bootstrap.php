@@ -8,8 +8,9 @@ require_once $path.'/vendor/skel/interfaces/Interfaces.php';
 require_once $path.'/vendor/skel/db/Db.php';
 require_once $path.'/vendor/skel/uri/Uri.php';
 require_once $path.'/Content.php';
+require_once $path.'/Page.php';
 require_once $path.'/Post.php';
-require_once $path.'/CmsTraitSqlite.php';
+require_once $path.'/Cms.php';
 
 class Benchmark {
   protected static $checkpoints = array();
@@ -27,39 +28,15 @@ class Benchmark {
   }
 }
 
-class TestDb extends \Skel\Db implements \Skel\Interfaces\CmsDb {
-  use \Skel\CmsTraitSqlite;
-
-  const VERSION = 1;
-
-  protected function downgradeDatabase(int $targetVersion, int $fromVersion) {
-    // Nothing to do here
-  }
-
-  protected function upgradeDatabase(int $targetVersion, int $fromVersion) {
-    if ($fromVersion < 1 && $targetVersion >= 1) {
-      $this->upgradeCmsDatabase(1, 0);
-    }
-  }
-
-  public function getContentDir() {
-    if (!$this->contentDir) throw new RuntimeException("You haven't set the content directory yet! Please set the directory by passing a valid URI to `setContentDir()`");
-    return $this->contentDir;
-  }
-
-  protected function getFields(string $type) {
-    $rawFields = \Skel\Content::getFields($type);
-    $fields = array();
-    foreach ($rawFields as $k => $def) $fields = "\"$k\"";
-    return $fields;
-  }
-
-  public function setContentDir(\Skel\Interfaces\Uri $uri) {
-    if ($uri->getScheme() != 'file') throw new RuntimeException("Sorry, don't know how to handle anything but a local folder! If you want this functionality, you'll have to implement it :(.");
-    if (!is_dir($uri->getPath())) throw new RuntimeException("Provided URI doesn't point to a valid directory!");
-    $this->contentDir = $uri;
-    return $this;
-  }
+class Config {
+  protected $config = array();
+  function checkConfig() { return true; }
+  function __construct(string $basefile) { return $this; }
+  function get(string $key, string $default=null) { return $this->config[$key] ?: $default; }
+  function set(string $key, $val) { $this->config[$key] = $val; return $this; }
+  function dump() { return true; }
+  function getDbPdo() { return 'sqlite:tests/db/test.sqlite3'; }
+  function getDbContentRoot() { return 'tests/content'; }
 }
 
 function getDb(bool $fresh=false) {
@@ -69,24 +46,11 @@ function getDb(bool $fresh=false) {
 
   if ($fresh && is_file("$dir/$file")) unlink("$dir/$file");
 
-  $db = new TestDb("sqlite:$dir/$file");
-  $db->setContentDir(new \Skel\Uri('file://'.getcwd().'/tests/content/'));
+  $db = new \Skel\Cms(new Config('tests/config'));
   return $db;
 }
 
 
-\Skel\Post::setValidCategories(array('writings', 'photography', 'music'));
-
-
-// A class to test the ContentClass error mechanism
-// ContentClasses should descened from `\Skel\Content`. Since this one doesn't it should
-// throw an error when used.
-
-class NondescendentContentClass {
-  function __construct($db, $data=null) {
-  }
-}
-
-Benchmark::check("Starting");
+//Benchmark::check("Starting");
 
 ?>

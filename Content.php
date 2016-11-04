@@ -11,7 +11,6 @@ namespace Skel;
  * */
 class Content implements Interfaces\Content {
   protected $active;
-  protected $address;
   protected $canonicalId;
   protected $content;
   protected $contentClass;
@@ -22,36 +21,65 @@ class Content implements Interfaces\Content {
   protected $dateUpdated;
   protected $id;
   protected $lang;
+  protected $parentAddress;
+  protected $slug;
   protected $tags = array();
   protected $title;
 
-  protected $rawData;
   protected $changes = array();
   protected $errors = array();
+  protected $setBySystem = array();
 
   public function __construct(array $data=array()) {
+    if (count($data) > 0) $this->loadFromData($data);
+    else $this->loadDefaults();
+  }
 
+  protected function loadFromData(array $data) {
+    $fields = array('active', 'canonicalId', 'content', 'contentClass', 'contentType', 'contentUri', 'dateCreated', 'dateExpired', 'dateUpdated', 'id', 'lang', 'parentAddress', 'setBySystem', 'slug', 'tags', 'title');
+    foreach ($fields as $field) {
+      if (!array_key_exists($field, $data)) throw new InvalidDataException("Required field `$field` isn't set in the data to load into Content.");
+
+      if ($field == 'active') $val = (bool) $data[$field];
+      elseif ($field == 'contentUri') $val = new Uri($data[$field]);
+      elseif (substr($field,0,4) == 'date') $val = \DateTime::createFromFormat(\DateTime::ISO8601, $data[$field]);
+      elseif ($field == 'id') $val = (int) $data[$field];
+      elseif ($field == 'setBySystem') {
+        foreach($data[$field] as $f) $this->setBySystem[$f] = true;
+        continue;
+      } elseif ($field == 'tags') {
+        foreach($data[$field] as $tag) $this->tags[] = $tag;
+        continue;
+      }
+      else $val = $data[$field];
+
+      $this->$field = $val;
+    }
+  }
+
+  protected function loadDefaults() {
     $this
-      ->setActive((bool) $data['active'])
-      ->setAddress($data['address'])
-      ->setCanonicalId($data['canonicalId'])
-      ->setContent($data['content'])
-      ->setContentClass($data['contentClass'] ?: $this->getNormalizedClassName())
-      ->setContentType($data['contentType'])
-      ->setContentUri($data['contentUri'] ? new Uri($data['contentUri']) : null)
-      ->setDateCreated($data['dateCreated'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateCreated']) : null)
-      ->setDateExpired($data['dateExpired'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateExpired']) : null)
-      ->setDateUpdated($data['dateUpdated'] ? \DateTime::createFromFormat(\DateTime::ISO8601, $data['dateUpdated']) : null)
-      ->setId($data['id'])
-      ->setLang($data['lang'])
-      ->setTitle($data['title'])
+      ->setActive()
+      ->setCanonicalId()
+      ->setContent()
+      ->setContentClass()
+      ->setContentType()
+      ->setContentUri()
+      ->setDateCreated()
+      ->setDateExpired()
+      ->setDateUpdated()
+      ->setLang()
+      ->setParentAddress()
+      ->setSlug()
+      ->setTitle()
     ;
+    $this->setBySystem = array('active' => true, 'canonicalId' => true, 'content' => true, 'contentClass' => true, 'contentType' => true, 'contentUri' => true, 'dateCreated' => true, 'dateExpired' => true, 'dateUpdated' => true, 'id' => true, 'lang' => true, 'parentAddress' => true, 'slug' => true, 'title' => true);
+  }
 
-    // Add tags
-    foreach($data['tags'] as $tag) $this->addTag($tag);
-
-    // If we're building from data, consider this a fresh, unchanged object
-    if (count($data) > 0) $this->changes = array();
+ 
+  public static function createContentUri(string $parentAddress=null, string $slug=null) {
+    if (!$parentAddress || !$slug) return null;
+    return new Uri('file://pages'.$parentAddress.'/'.$slug.'.md');
   }
 
   public static function createSlug(string $str) {
@@ -76,115 +104,133 @@ class Content implements Interfaces\Content {
    * Setters
    * ************************/
 
-  protected function setData($field, $val) {
+  protected function setData($field, $val, $setBySystem) {
     if (!array_key_exists($field, $this->changes)) $this->changes[$field] = array();
-    $this->changes[$field][] = $this->rawData[$field];
-    $this->rawData[$field] = $val;
+    $this->changes[$field][] = $this->$field;
+    $this->$field = $val;
+    $this->setBySystem[$field] = $setBySystem;
   }
 
-  public function setActive(bool $newVal=true) {
-    $this->setData('active', (int) $newVal);
-    $this->active = (bool)$newVal;
+  public function setActive(bool $newVal=true, bool $setBySystem=false) {
+    $this->setData('active', $newVal, $setBySystem);
     $this->validate('active');
     return $this;
   }
 
-  public function setAddress(string $newVal=null) {
-    $this->setData('address', $newVal);
-    $this->address = $newVal;
-    $this->validate('address');
-    return $this;
-  }
-
-  public function setCanonicalId(string $newVal=null) {
-    $this->setData('canonicalId', $newVal);
-    $this->canonicalAddr = $newVal;
+  public function setCanonicalId(string $newVal=null, bool $setBySystem=false) {
+    $this->setData('canonicalId', $newVal, $setBySystem);
     $this->validate('canonicalId');
     return $this;
   }
 
-  public function setContent(string $newVal=null) {
-    $this->setData('content', $newVal);
-    $this->content = $newVal;
+  public function setContent(string $newVal=null, bool $setBySystem=false) {
+    $this->setData('content', $newVal, $setBySystem);
     $this->validate('content');
+    if (!$setBySystem) $this->setDateUpdated(new \DateTime(), true);
     return $this;
   }
 
-  public function setContentClass(string $newVal=null) {
-    $this->setData('contentClass', $newVal);
-    $this->contentClass = $newVal;
+  protected function setContentClass(string $newVal=null, bool $setBySystem=false) {
+    if (!$newVal) $newVal = static::getNormalizedClassName();
+    $this->setData('contentClass', $newVal, $setBySystem);
     $this->validate('contentClass');
     return $this;
   }
 
-  public function setContentType(string $newVal='text/plain; charset=UTF-8') {
-    $this->setData('contentType', $newVal);
-    $this->contentType = $newVal;
+  public function setContentType(string $newVal='text/plain; charset=UTF-8', bool $setBySystem=false) {
+    $this->setData('contentType', $newVal, $setBySystem);
     $this->validate('contentType');
     return $this;
   }
 
-  public function setContentUri(Interfaces\Uri $newVal=null) {
-    $this->setData('contentUri', ($newVal ? $newVal->toString() : null));
-    $this->contentUri = $newVal;
+  public function setContentUri(Interfaces\Uri $newVal=null, bool $setBySystem=false) {
+    $this->setData('contentUri', $newVal, $setBySystem);
     $this->validate('contentUri');
     return $this;
   }
 
-  public function setDateCreated(\DateTime $newVal=null) {
+  public function setDateCreated(\DateTime $newVal=null, bool $setBySystem=false) {
     if (!$newVal) $newVal = new \DateTime();
-    $this->setData('dateCreated', $newVal->format(\DateTime::ISO8601));
-    $this->dateCreated = $newVal;
+    $this->setData('dateCreated', $newVal, $setBySystem);
     $this->validate('dateCreated');
+    if ($this->dateUpdated && $newVal->getTimestamp() > $this->dateUpdated->getTimestamp()) $this->setDateUpdated($newVal, true);
     return $this;
   }
 
-  public function setDateExpired(\DateTime $newVal=null) {
-    $this->setData('dateExpired', ($newVal ? $newVal->format(\DateTime::ISO8601) : null));
-    $this->dateExpired = $newVal;
+  public function setDateExpired(\DateTime $newVal=null, bool $setBySystem=false) {
+    $this->setData('dateExpired', $newVal, $setBySystem);
     $this->validate('dateExpired');
     return $this;
   }
 
-  public function setDateUpdated(\DateTime $newVal=null) {
-    if (!$newVal) $newVal = new \DateTime();
-    $this->setData('dateUpdated', $newVal->format(\DateTime::ISO8601));
-    $this->dateUpdated = $newVal;
+  public function setDateUpdated(\DateTime $newVal=null, bool $setBySystem=false) {
+    // Don't overwrite a valid date with null
+    if (!$newVal) {
+      if ($this->dateUpdated) return $this;
+      // If not yet set, set to today
+      if (!$newVal) $newVal = new \DateTime();
+    }
+
+    $this->setData('dateUpdated', $newVal, $setBySystem);
     $this->validate('dateUpdated');
     return $this;
   }
 
-  public function setId(int $newVal) {
+  public function setId(int $newVal, bool $setBySystem=false) {
     if ($this->id && $newVal != $this->id) throw new InvalidDataException("You can't change the id once it's already set!");
     $this->id = $newVal;
+    return $this;
   }
 
-  public function setLang(string $newVal=null) {
-    $this->setData('lang', $newVal);
-    $this->lang = $newVal;
+  public function setLang(string $newVal='en', bool $setBySystem=false) {
+    $this->setData('lang', $newVal, $setBySystem);
     $this->validate('lang');
+    return $this;
+  }
+
+  public function setParentAddress(string $newVal=null, bool $setBySystem=false) {
+    if ($newVal && substr($newVal, -1) == '/') $newVal = substr($newVal, 0, -1);
+    $this->setData('parentAddress', $newVal, $setBySystem);
+    $this->validate('parentAddress');
+
+    if ($this->fieldSetBySystem('canonicalId') && $this->slug) $this->setCanonicalId($this->getAddress(), true);
+    if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->parentAddress, $this->slug), true);
+
+    return $this;
+  }
+
+  public function setSlug(string $newVal=null, bool $setBySystem=false) {
+    if ($newVal) $newVal = trim($newVal, '/');
+    $this->setData('slug', $newVal, $setBySystem);
+    $this->validate('slug');
+
+    if ($this->fieldSetBySystem('canonicalId')) $this->setCanonicalId($this->getAddress(), true);
+    if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->parentAddress, $this->slug), true);
+
     return $this;
   }
 
   public function addTag(string $newVal) {
     if (array_search($newVal, $this->tags) !== false) return $this;
-
     $this->tags[] = $newVal;
-    $this->setData('tags', $this->tags);
+    $this->setData('tags', $this->tags, false);
     return $this;
   }
 
   public function removeTag(string $val) {
     if (($key = array_search($val, $this->tags)) === false) return $this;
     array_splice($this->tags, $key, 1);
-    $this->setData('tags', $this->tags);
+    $this->setData('tags', $this->tags, false);
     return $this;
   }
 
-  public function setTitle(string $newVal=null) {
-    $this->setData('title', $newVal);
-    $this->title = $newVal;
+  public function setTitle(string $newVal=null, bool $setBySystem=false) {
+    $this->setData('title', $newVal, $setBySystem);
     $this->validate('title');
+
+    if ($this->fieldSetBySystem('slug') && $newVal) $this->setSlug(static::createSlug($newVal), true);
+    if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->parentAddress, $this->slug), true);
+
     return $this;
   }
 
@@ -232,6 +278,7 @@ class Content implements Interfaces\Content {
       'content' => 'You\'ve gotta set some content.',
       'contentType' => 'You must specifiy a valid Content Type for this content.',
       'contentUri' => 'You must specifiy a valid Content Uri for this content.',
+      'slug' => 'You must supply a "slug", or "pretty url" for your content. Note that this should not have slashes in it.',
       'title' => 'You must specifiy a valid Title for this content.',
     );
 
@@ -243,6 +290,8 @@ class Content implements Interfaces\Content {
       if (!is_string($val) || strlen($val) != 2) $error = 'You must specify a two-letter ISO 639-1 language code for your content.';
     } elseif ($field == 'contentClass') {
       if ($val != $this->getNormalizedClassName()) $error = "The classname you've specified is inconsistent with the current Object you're using!";
+    } elseif ($field == 'slug') {
+      if (strpos($val, '/') !== false) $error = 'The "slug" or "pretty url" cannot have slashes in it (it should only be the last part of the url, the part that specifically identifies this content).';
     }
 
     if ($error) {
@@ -267,7 +316,10 @@ class Content implements Interfaces\Content {
    * *************************/
 
   public function getActive() { return $this->active; }
-  public function getAddress() { return $this->address; }
+  public function getAddress() {
+    if (!$this->parentAddress || !$this->slug) return null;
+    return $this->parentAddress.'/'.$this->slug;
+  }
   public function getCanonicalId() { return $this->canonicalId; }
   public function getContent() { return $this->content; }
   public function getContentClass() { return $this->contentClass; }
@@ -278,20 +330,31 @@ class Content implements Interfaces\Content {
   public function getDateUpdated() { return $this->dateUpdated; }
   public function getId() { return $this->id; }
   public function getLang() { return $this->lang; }
+  public function getParentAddress() { return $this->parentAddress; }
+  public function getSlug() { return $this->slug; }
   public function getTags() { return $this->tags; }
   public function getTitle() { return $this->title; }
 
-  public function getNormalizedClassName() {
-    $str = preg_replace(array('/([A-Z])/', '/_-/'), array('-\1','_'), static::class);
+  public static function getNormalizedClassName() {
+    $str = explode('\\', static::class);
+    $str = array_pop($str);
+    $str = preg_replace(array('/([A-Z])/', '/_-/'), array('-\1','_'), $str);
     return trim(strtolower($str), '-');
   }
     
   public function getChanges() {
     $changes = array();
-    foreach($this->changes as $k => $prev) $changes[$k] = $this->rawData[$k];
+    foreach($this->changes as $k => $prev) $changes[$k] = $this->$k;
     return $changes;
   }
-  public function getRawData() { return $this->rawData; }
+  public function fieldSetBySystem(string $field) { return (bool) $this->setBySystem[$field]; }
+  public function getFieldsSetBySystem() {
+    $fields = array();
+    foreach($this->setBySystem as $field => $set) {
+      if ($set) $fields[] = $field;
+    }
+    return $fields;
+  }
 }
 
 

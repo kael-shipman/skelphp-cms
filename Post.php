@@ -3,30 +3,33 @@ namespace Skel;
 
 class Post extends Content implements Interfaces\Post {
 
-  protected $imgPrefix;
-  protected $category;
+  protected $author;
   protected $hasImg;
+  protected $imgPrefix;
 
-  protected static $validCategories = array();
-  protected static $__validCategories = array();
+  protected function loadFromData(array $data) {
+    parent::loadFromData($data);
 
-  public function __construct(array $data=array()) {
-    parent::__construct($data);
+    $fields = array('author', 'hasImg', 'imgPrefix');
+    foreach ($fields as $field) {
+      if (!array_key_exists($field, $data)) throw new InvalidDataException("Required field `$field` isn't set in the data to load into Post.");
 
-    $this
-      ->setContentType($data['contentType'] ?: 'text/markdown; charset=UTF-8')
-      ->setImgPrefix($data['imgPrefix'])
-      ->setCategory($data['category'])
-      ->setHasImg((bool) $data['hasImg'])
-    ;
+      if ($field == 'hasImg') $val = (bool) $data[$field];
+      else $val = $data[$field];
 
-    // If we're building from data, consider this a fresh, unchanged object
-    if (count($data) > 0) $this->changed = array();
+      $this->$field = $val;
+    }
   }
 
-  public function createImgPrefix() {
-    $prefix = $this->getDateCreated()->format('Y-m-');
-    $words = explode(' ',$this->getTitle());
+  protected function loadDefaults() {
+    parent::loadDefaults();
+    $this->setAuthor()->setHasImg()->setImgPrefix();
+    $this->setBySystem = array_merge($this->setBySystem, array('author' => true, 'hasImg' => true, 'imgPrefix' => true));
+  }
+
+  public static function createImgPrefix(\DateTime $dateCreated, string $title) {
+    $prefix = $dateCreated->format('Y-m-');
+    $words = explode(' ',$title);
     if (count($words) <= 3) return $prefix.static::createSlug(implode('-', $words));
 
     $bigWords = array();
@@ -40,12 +43,14 @@ class Post extends Content implements Interfaces\Post {
     return $prefix.static::createSlug(implode('-', $bigWords));
   }
 
+
+
+
   public function getAuthor() {
     if (!$this->author) $author = 'Anonymous';
     else $author = $this->author;
     return $author;
   }
-  public function getCategory() { return $this->category; }
   public function getContentExcerpt(int $words=40) {
     $content = $this->getContent();
     $nonwords = array(9 => true, 10 => true, 13 => true, 32 => true);
@@ -62,55 +67,39 @@ class Post extends Content implements Interfaces\Post {
     }
     return substr($content, 0, $n);
   }
-  public function getImgPrefix() { return $this->imgPrefix; }
-  public function getMainImgPath() { return $this->hasImg ? '/assets/imgs/'.$this->category.'/'.$this->imgPrefix.'.jpg' : null; }
-  public static function getValidCategories() {
-    if (static::$__validCategories) return static::$__validCategories;
-
-    $cats = static::$validCategories;
-    $parent = static::class;
-    while ($parent = get_parent_class($parent)) $cats = array_merge($cats, $parent::$validCategories ?: array());
-    static::$__validCategories = $cats;
-
-    return static::$__validCategories;
-  }
   public function hasImg() { return $this->hasImg; }
-
-
-
-
-  public function setAuthor(string $val=null) {
-    $this->setAttribute('author', $val);
-    $this->author = $val;
-    return $this;
-  }
-  public function setHasImg(bool $val) {
-    if (!is_bool($val) && !is_numeric($val)) $this->setError('hasImg', 'The HasImg flag must evaluate to true or false.');
-    else $this->clearError('hasImg');
-
-    $this->setAttribute('hasImg', (int) $val);
-    $this->hasImg = (bool)$val;
-    return $this;
-  }
-  public function setImgPrefix(string $val=null) {
-    if (!$val) $this->setError('imgPrefix', 'All Posts must have a valid imgPrefix.');
-    else $this->clearError('imgPrefix');
-
-    $this->setAttribute('imgPrefix', $val);
-    $this->imgPrefix = $val;
-    return $this;
-  }
-  public function setCategory(string $val=null) {
-    if (!$val || array_search($val, static::$validCategories) === false) $this->setError('category', 'All Posts must have a category. Currently allowed categories are `'.implode('`, `', static::$validCategories).'`.');
-    else $this->clearError('category');
-
-    $this->setAttribute('category', $val);
-    $this->category = $val;
-    return $this;
+  public function getImgPrefix() { return $this->imgPrefix; }
+  public function getMainImgPath() {
+    if (!$this->parentAddress || !$this->imgPrefix || !$this->hasImg) return null;
+    return '/assets/imgs'.$this->parentAddress.'/'.$this->imgPrefix.'.jpg';
   }
 
-  public static function setValidCategories(array $categories) {
-    static::$validCategories = $categories;
+
+
+  public function setAuthor(string $newVal=null, bool $setBySystem=false) {
+    $this->setData('author', $newVal, $setBySystem);
+    $this->validate('author');
+    return $this;
+  }
+  public function setDateCreated(\DateTime $newVal=null, bool $setBySystem=false) {
+    parent::setDateCreated($newVal, $setBySystem);
+    if ($this->fieldSetBySystem('imgPrefix') && $this->title && $this->dateCreated) $this->setImgPrefix(static::createImgPrefix($this->dateCreated, $this->title), true);
+    return $this;
+  }
+  public function setHasImg(bool $val=false, bool $setBySystem=false) {
+    $this->setData('hasImg', $val, $setBySystem);
+    $this->validate('hasImg');
+    return $this;
+  }
+  public function setImgPrefix(string $newVal=null, $setBySystem=false) {
+    $this->setData('imgPrefix', $newVal, $setBySystem);
+    $this->validate('imgPrefix');
+    return $this;
+  }
+  public function setTitle(string $newVal=null, $setBySystem=false) {
+    parent::setTitle($newVal);
+    if ($this->fieldSetBySystem('imgPrefix') && $this->title && $this->dateCreated) $this->setImgPrefix(static::createImgPrefix($this->dateCreated, $this->title), true);
+    return $this;
   }
 
 
@@ -118,17 +107,11 @@ class Post extends Content implements Interfaces\Post {
   protected function validate(string $field) {
     $val = $this->$field;
     $required = array(
+      'hasImg' => 'All posts must have the `hasImg` flag set',
       'imgPrefix' => 'All posts must have an imgPrefix, even if they don\'t have any images',
-      'category' => 'All posts must be assigned to a valid category. Otherwise they won\'t show up anywhere!';
     );
 
-    if (array_key_exists($field, $required) && !$val) $error = $required[$field];
-
-    if ($field == 'hasImg') {
-      if (!is_bool($val)) $error = 'hasImg must be true or false. It can\'t be null.';
-    } elseif ($field == 'category') {
-      if (array_search($val, static::getValidCategories()) === false) $error = $required[$field];
-    }
+    if (array_key_exists($field, $required) && $val === null) $error = $required[$field];
 
     if ($error) {
       $this->setError($field, $error);
