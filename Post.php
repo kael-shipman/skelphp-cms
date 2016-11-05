@@ -7,6 +7,8 @@ class Post extends Content implements Interfaces\Post {
   protected $hasImg;
   protected $imgPrefix;
 
+  protected static $primaryFields = array('author','hasImg','imgPrefix');
+
   protected function loadFromData(array $data) {
     parent::loadFromData($data);
 
@@ -23,7 +25,11 @@ class Post extends Content implements Interfaces\Post {
 
   protected function loadDefaults() {
     parent::loadDefaults();
-    $this->setAuthor()->setHasImg()->setImgPrefix();
+    $this
+      ->setAuthor()
+      ->setHasImg()
+      ->setImgPrefix()
+    ;
     $this->setBySystem = array_merge($this->setBySystem, array('author' => true, 'hasImg' => true, 'imgPrefix' => true));
   }
 
@@ -67,39 +73,43 @@ class Post extends Content implements Interfaces\Post {
     }
     return substr($content, 0, $n);
   }
-  public function hasImg() { return $this->hasImg; }
+  public function getHasImg() { return $this->hasImg(); }
   public function getImgPrefix() { return $this->imgPrefix; }
   public function getMainImgPath() {
     if (!$this->parentAddress || !$this->imgPrefix || !$this->hasImg) return null;
     return '/assets/imgs'.$this->parentAddress.'/'.$this->imgPrefix.'.jpg';
   }
+  public function hasImg() { return $this->hasImg; }
 
 
 
   public function setAuthor(string $newVal=null, bool $setBySystem=false) {
     $this->setData('author', $newVal, $setBySystem);
-    $this->validate('author');
     return $this;
   }
   public function setDateCreated(\DateTime $newVal=null, bool $setBySystem=false) {
     parent::setDateCreated($newVal, $setBySystem);
-    if ($this->fieldSetBySystem('imgPrefix') && $this->title && $this->dateCreated) $this->setImgPrefix(static::createImgPrefix($this->dateCreated, $this->title), true);
     return $this;
   }
-  public function setHasImg(bool $val=false, bool $setBySystem=false) {
-    $this->setData('hasImg', $val, $setBySystem);
-    $this->validate('hasImg');
+  public function setHasImg(bool $newVal=false, bool $setBySystem=false) {
+    $this->setData('hasImg', $newVal, $setBySystem);
     return $this;
   }
-  public function setImgPrefix(string $newVal=null, $setBySystem=false) {
+  public function setImgPrefix(string $newVal=null, bool $setBySystem=false) {
     $this->setData('imgPrefix', $newVal, $setBySystem);
-    $this->validate('imgPrefix');
     return $this;
   }
-  public function setTitle(string $newVal=null, $setBySystem=false) {
+  public function setTitle(string $newVal=null, bool $setBySystem=false) {
     parent::setTitle($newVal);
-    if ($this->fieldSetBySystem('imgPrefix') && $this->title && $this->dateCreated) $this->setImgPrefix(static::createImgPrefix($this->dateCreated, $this->title), true);
     return $this;
+  }
+
+
+  protected function fireEvent(string $field) {
+    parent::fireEvent($field);
+    if ($field == 'dateCreated' || $field == 'title') {
+      if ($this->fieldSetBySystem('imgPrefix') && $this->title && $this->dateCreated) $this->setImgPrefix(static::createImgPrefix($this->dateCreated, $this->title), true);
+    }
   }
 
 

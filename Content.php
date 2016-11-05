@@ -30,6 +30,9 @@ class Content implements Interfaces\Content {
   protected $errors = array();
   protected $setBySystem = array();
 
+  protected static $primaryFields = array('active', 'canonicalId', 'content', 'contentClass', 'contentType', 'contentUri', 'dateCreated', 'dateExpired', 'dateUpdated', 'id', 'lang', 'parentAddress', 'slug', 'title');
+  protected static $__primaryFields;
+
   public function __construct(array $data=array()) {
     if (count($data) > 0) $this->loadFromData($data);
     else $this->loadDefaults();
@@ -77,9 +80,8 @@ class Content implements Interfaces\Content {
   }
 
  
-  public static function createContentUri(string $parentAddress=null, string $slug=null) {
-    if (!$parentAddress || !$slug) return null;
-    return new Uri('file://pages'.$parentAddress.'/'.$slug.'.md');
+  public static function createContentUri(string $address=null) {
+    return new Uri('file://pages'.$address.'.md');
   }
 
   public static function createSlug(string $str) {
@@ -109,57 +111,49 @@ class Content implements Interfaces\Content {
     $this->changes[$field][] = $this->$field;
     $this->$field = $val;
     $this->setBySystem[$field] = $setBySystem;
+    $this->validate($field);
+    $this->fireEvent($field);
   }
 
   public function setActive(bool $newVal=true, bool $setBySystem=false) {
     $this->setData('active', $newVal, $setBySystem);
-    $this->validate('active');
     return $this;
   }
 
   public function setCanonicalId(string $newVal=null, bool $setBySystem=false) {
     $this->setData('canonicalId', $newVal, $setBySystem);
-    $this->validate('canonicalId');
     return $this;
   }
 
   public function setContent(string $newVal=null, bool $setBySystem=false) {
     $this->setData('content', $newVal, $setBySystem);
-    $this->validate('content');
-    if (!$setBySystem) $this->setDateUpdated(new \DateTime(), true);
     return $this;
   }
 
   protected function setContentClass(string $newVal=null, bool $setBySystem=false) {
     if (!$newVal) $newVal = static::getNormalizedClassName();
     $this->setData('contentClass', $newVal, $setBySystem);
-    $this->validate('contentClass');
     return $this;
   }
 
   public function setContentType(string $newVal='text/plain; charset=UTF-8', bool $setBySystem=false) {
     $this->setData('contentType', $newVal, $setBySystem);
-    $this->validate('contentType');
     return $this;
   }
 
   public function setContentUri(Interfaces\Uri $newVal=null, bool $setBySystem=false) {
     $this->setData('contentUri', $newVal, $setBySystem);
-    $this->validate('contentUri');
     return $this;
   }
 
   public function setDateCreated(\DateTime $newVal=null, bool $setBySystem=false) {
     if (!$newVal) $newVal = new \DateTime();
     $this->setData('dateCreated', $newVal, $setBySystem);
-    $this->validate('dateCreated');
-    if ($this->dateUpdated && $newVal->getTimestamp() > $this->dateUpdated->getTimestamp()) $this->setDateUpdated($newVal, true);
     return $this;
   }
 
   public function setDateExpired(\DateTime $newVal=null, bool $setBySystem=false) {
     $this->setData('dateExpired', $newVal, $setBySystem);
-    $this->validate('dateExpired');
     return $this;
   }
 
@@ -172,7 +166,6 @@ class Content implements Interfaces\Content {
     }
 
     $this->setData('dateUpdated', $newVal, $setBySystem);
-    $this->validate('dateUpdated');
     return $this;
   }
 
@@ -184,29 +177,18 @@ class Content implements Interfaces\Content {
 
   public function setLang(string $newVal='en', bool $setBySystem=false) {
     $this->setData('lang', $newVal, $setBySystem);
-    $this->validate('lang');
     return $this;
   }
 
   public function setParentAddress(string $newVal=null, bool $setBySystem=false) {
     if ($newVal && substr($newVal, -1) == '/') $newVal = substr($newVal, 0, -1);
     $this->setData('parentAddress', $newVal, $setBySystem);
-    $this->validate('parentAddress');
-
-    if ($this->fieldSetBySystem('canonicalId') && $this->slug) $this->setCanonicalId($this->getAddress(), true);
-    if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->parentAddress, $this->slug), true);
-
     return $this;
   }
 
   public function setSlug(string $newVal=null, bool $setBySystem=false) {
     if ($newVal) $newVal = trim($newVal, '/');
     $this->setData('slug', $newVal, $setBySystem);
-    $this->validate('slug');
-
-    if ($this->fieldSetBySystem('canonicalId')) $this->setCanonicalId($this->getAddress(), true);
-    if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->parentAddress, $this->slug), true);
-
     return $this;
   }
 
@@ -226,11 +208,6 @@ class Content implements Interfaces\Content {
 
   public function setTitle(string $newVal=null, bool $setBySystem=false) {
     $this->setData('title', $newVal, $setBySystem);
-    $this->validate('title');
-
-    if ($this->fieldSetBySystem('slug') && $newVal) $this->setSlug(static::createSlug($newVal), true);
-    if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->parentAddress, $this->slug), true);
-
     return $this;
   }
 
@@ -302,7 +279,21 @@ class Content implements Interfaces\Content {
       return true;
     }
   }
-      
+
+
+
+  protected function fireEvent(string $field) {
+    if ($field == 'content') {
+      if (!$this->fieldSetBySystem('content')) $this->setDateUpdated(new \DateTime(), true);
+    }
+    if ($field == 'parentAddress' || $field == 'slug') {
+      if ($this->fieldSetBySystem('canonicalId') && $this->slug) $this->setCanonicalId($this->getAddress(), true);
+      if ($this->fieldSetBySystem('contentUri')) $this->setContentUri(static::createContentUri($this->getAddress()), true);
+    }
+    if ($field == 'title') {
+      if ($this->fieldSetBySystem('slug') && $this->title) $this->setSlug(static::createSlug($this->$field), true);
+    }
+  }
 
 
 
@@ -317,7 +308,7 @@ class Content implements Interfaces\Content {
 
   public function getActive() { return $this->active; }
   public function getAddress() {
-    if (!$this->parentAddress || !$this->slug) return null;
+    if (!$this->slug) return null;
     return $this->parentAddress.'/'.$this->slug;
   }
   public function getCanonicalId() { return $this->canonicalId; }
@@ -354,6 +345,24 @@ class Content implements Interfaces\Content {
       if ($set) $fields[] = $field;
     }
     return $fields;
+  }
+
+  public function getPrimaryFields() {
+    if (static::$__primaryFields) return static::$__primaryFields;
+
+    $fields = static::$primaryFields;
+    $parent = static::class;
+    while ($parent = get_parent_class($parent)) {
+      try {
+        $parentFields = $parent::$primaryFields;
+      } catch (\Throwable $e) {
+        $parentFields = array();
+      }
+      $fields = array_merge($fields, $parentFields);
+    }
+    static::$__primaryFields = $fields;
+
+    return static::$__primaryFields;
   }
 }
 

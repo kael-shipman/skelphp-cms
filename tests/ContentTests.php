@@ -35,7 +35,7 @@ class ContentClassTests extends TestCase {
 
     $this->assertEquals(\Skel\Content::createSlug($c->getTitle()), $c->getSlug(), "Slug was not automatically set with title");
     $this->assertTrue($c->fieldSetBySystem('slug'), "Slug should have been marked as set by system");
-    $this->assertNull($c->getContentUri(), "The contentURI should still be null because no parent has been set yet.");
+    $this->assertEquals('file://pages/about-test.md', $c->getContentUri()->toString(), "The contentURI should be equal to the slug.");
 
     $c->setParentAddress($data['parentAddress']);
 
@@ -123,6 +123,57 @@ class ContentClassTests extends TestCase {
     $this->assertEquals(array('contentClass', 'id'), $c->getFieldsSetBySystem(), "All pertinent fields were set by the user, so there should be no fields set by the system.");
   }
 
+  public function testCreateFromPartialDataThrowsException() {
+    $data = $this->getTestContentData();
+    for($i = 0; $i < count($data); $i++) {
+      $test = $data;
+      $k = array_keys($data)[$i];
+      unset($test[$k]);
+
+      $this->assertNotEquals($test, $data, "The test array should be an incomplete subset of the data array");
+
+      try {
+        $c = new \Skel\Content($test);
+        $this->fail("Should have thrown an error with incomplete test data (missing key `$k`)");
+      } catch (PHPUnit_Framework_AssertionFailedError $e) {
+        throw $e;
+      } catch (\Skel\InvalidDataException $e) {
+        $this->assertTrue(true, "This is the desired behavior");
+      }
+    }
+  }
+
+  public function testTriggers() {
+    $data = $this->getTestContentData();
+    $p = new \Skel\Post();
+
+    // Content is easiest -- wait a second, then make sure the updated date is greater than created date
+    sleep(1);
+    $p->setContent('Test test test!');
+    $this->assertTrue($p->getDateUpdated()->getTimestamp() > $p->getDateCreated()->getTimestamp(), "Updated date should be greater than created date");
+
+    // Now try title, which should change slug and by extension canonicalId and contentUri
+    $p->setTitle('Test');
+    $this->assertEquals('test', $p->getSlug(), "Slug should be derived from title if not intentionally set");
+    $this->assertEquals('file://pages/test.md', $p->getContentUri()->toString(), "Content Uri should be derived from slug and optionally parent address");
+    $this->assertEquals('/test', $p->getCanonicalId(), "CanonicalId should be derived from the slug and optionally parent address");
+
+    // Now change slug and change title again
+    $p->setSlug('different-slug');
+    $p->setTitle('Another Test');
+    $this->assertEquals('different-slug', $p->getSlug(), "Slug should still be what we wanted before changing title, since we set it intentionally");
+
+    // Now change canonical ID and slug
+    $p->setCanonicalId('/my/absolute/stuff');
+    $p->setSlug('even-more-different-slug');
+    $this->assertEquals('/my/absolute/stuff', $p->getCanonicalId(), "Canonical Id should stay the same when we set it intentionally");
+
+    // Now content uri
+    $p->setContentUri(new \Skel\Uri('https://medium.com/test-mctesterson/story1'));
+    $p->setSlug('chalfant-hall');
+    $this->assertEquals('https://medium.com/test-mctesterson/story1', $p->getContentUri()->toString(), "Content Uri should stay the same when we set it intentionally.");
+  }
+
 
 
 
@@ -132,7 +183,7 @@ class ContentClassTests extends TestCase {
 
   protected function getTestContentData() {
     return array(
-      'active' => false,
+      'active' => 0,
       'canonicalId' => '/about/test',
       'content' => 'Little Bo Peep',
       'contentClass' => 'content',

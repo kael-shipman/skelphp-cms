@@ -6,7 +6,8 @@ class CmsTests extends TestCase {
   protected $cms;
   protected $initialized;
 
-  public function testCreateSimplePost() {
+  /*
+  public function testCreateSimpleContent() {
     //Benchmark::check("Begin CreateSimplePost");
     $cms = $this->getCms();
     //Benchmark::check("Got CMS");
@@ -30,6 +31,14 @@ class CmsTests extends TestCase {
     $this->assertEquals((new DateTime())->format('Y-m-').'test1', $test->getImgPrefix(), "ImgPrefix wasn't properly created");
     $this->assertEquals('file://pages/music/test1.md', $test->getContentUri()->toString(), "Content Uri wasn't set correctly");
     //Benchmark::check("Finished CreateSimplePost Tests");
+  }
+
+  public function testCreateSimplePage() {
+    $this->fail('Implement this test');
+  }
+
+  public function testCreateSimplePost() {
+    $this->fail('Implement this test');
   }
 
   public function testErrorOnCreateDuplicatePost() {
@@ -188,7 +197,142 @@ class CmsTests extends TestCase {
     $this->assertEquals('Test6', $writingsIndex[4]->getTitle(), "getPostIndex should have returned oldest post of the second page last");
     //Benchmark::check("End GetPagedPostByAddress");
   }
+   */
 
+  public function testErrorOnSaveIncompleteContent() {
+    $this->initializeData();
+    $cms = $this->getCms();
+    $c = new \Skel\Content();
+    try {
+      $cms->saveContent($c);
+      $this->fail("Should have thrown an error on save incomplete content");
+    } catch (PHPUnit_Framework_AssertionFailedError $e) {
+      throw $e;
+    } catch (\Skel\InvalidDataException $e) {
+      $this->assertTrue(true, "This is the desired behavior");
+    }
+  }
+
+  public function testErrorOnSaveDuplicateContent() {
+    $this->initializeData();
+    $cms = $this->getCms();
+    $c = (new \Skel\Content())
+      ->setTitle('Test 1')
+      ->setParentAddress('/writings')
+      ->setContent('Little Bo Peep')
+    ;
+
+    try {
+      $cms->saveContent($c);
+      $this->fail("Should have thrown an error on save duplicate content");
+    } catch(PHPUnit_Framework_AssertionFailedError $e) {
+      throw $e;
+    } catch (\Skel\InvalidContentException $e) {
+      $this->assertTrue(true, "This is the desired behavior");
+    }
+  }
+
+  public function testGetContentByAddress() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $c = $cms->getContentByAddress('/writings/test-1');
+    $this->assertNotNull($c, "Should get content at valid address");
+    $this->assertEquals('Test 1', $c->getTitle(), "Should have gotten the correct entry");
+  }
+
+  public function testSaveAndRetrieveContent() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $c = (new \Skel\Content())
+      ->setTitle('My New Test')
+      ->setParentAddress('/writings')
+      ->setContent('This is my new test')
+    ;
+    $p = (new \Skel\Post())
+      ->setTitle('My Test Post')
+      ->setParentAddress('/photography')
+      ->setContent('This is my test post')
+    ;
+    $cms->saveContent($c);
+    $cms->saveContent($p);
+
+    $c = $cms->getContentByAddress('/writings/my-new-test');
+    $p = $cms->getContentByAddress('/photography/my-test-post');
+    $this->assertTrue(true, "We shouldn't have gotten any errors retrieving the inserted content.");
+  }
+
+  public function testCmsReturnsCorrectObjectType() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $p = (new \Skel\Post())
+      ->setTitle('Testing Object Retrieval')
+      ->setParentAddress('/music')
+      ->setContent('Test test test!!')
+    ;
+    $cms->saveContent($p);
+
+    $p = $cms->getContentByAddress('/music/testing-object-retrieval');
+    $this->assertEquals(get_class($p), \Skel\Post::class, "Returned content should have been an instance of \Skel\Post");
+  }
+
+  
+  public function testContentIndex() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $index = $cms->getContentIndex(array('/writings','/photography','/music'));
+    $this->assertTrue(count($index) > 10, "Content index should return many values");
+  }
+
+  public function testPagedContentIndex() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $index1 = $cms->getContentIndex(array('/writings','/photography','/music'), 5);
+    $this->assertEquals(5, count($index1), "Paged content index should return right number of values");
+
+    $index2 = $cms->getContentIndex(array('/writings','/photography','/music'), 5, 2);
+    $this->assertEquals(5, count($index2), "Second page of content index should return right number of different values");
+    $this->assertNotEquals($index1[0]->getTitle(), $index2[0]->getTitle(), "Different pages of the index should have different values");
+  }
+
+  public function testGetContentById() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $c = $cms->getContentById(1);
+    $this->assertNotNull($c, "Should have gotten content by Id 1");
+  }
+
+  public function testDeleteContent() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $c = $cms->getContentByAddress('/writings/test-1');
+    $cms->deleteContent($c);
+
+    $c = $cms->getContentByAddress('/writings/test-1');
+    $this->assertNull($c, "Should no longer be able to retrieve deleted content");
+  }
+
+  public function testGetContentParent() {
+    $this->initializeData();
+    $cms = $this->getCms();
+
+    $c = $cms->getContentByAddress('/writings/test-2');
+    $p = (new \Skel\Post())
+      ->setTitle('Parent Post')
+      ->setParentAddress('/writings/test-2')
+      ->setContent('Test content 2')
+    ;
+    $cms->saveContent($p);
+
+    $parent = $cms->getParentOf($p);
+    $this->assertEquals($c->getId(), $parent->getId(), "The parent was not gotten correctly!");
+  }
 
 
 
@@ -203,29 +347,37 @@ class CmsTests extends TestCase {
   protected function initializeData() {
     if ($this->initialized) return true;
     $cms = $this->getCms();
+
+    /*
+    This takes forever, so we're just using a db copy instead
+
     $num = 15;
     for($i = 1; $i <= $num; $i++) {
       $dateCreated = new DateTime();
       $dateCreated->sub(new DateInterval('P'.(7*($num-($i-1))).'D'));
-      $cms->newPost('Test'.$i, 'writings', 'en')
-        ->setContent('This is Test'.$i)
+      $p = (new \Skel\Post())
+        ->setTitle('Test '.$i)
+        ->setParentAddress('/writings')
+        ->setContent('This is Test '.$i)
         ->setDateCreated($dateCreated)
-        ->setDateUpdated($dateCreated)
-        ->save()
       ;
+      $cms->saveContent($p);
     }
 
     for($i = 1; $i <= $num; $i++) {
       $dateCreated = new DateTime();
       $dateCreated->sub(new DateInterval('P'.(3*($num-($i-1))).'D'));
-      $cms->newPost('Photo'.$i, 'photography', 'en')
-        ->setContent('This is Photography Test'.$i)
+      $p = (new \Skel\Post())
+        ->setTitle('Photo '.$i)
+        ->setParentAddress('/photography')
+        ->setContent('This is Photography '.$i)
         ->setDateCreated($dateCreated)
-        ->setDateUpdated($dateCreated)
-        ->save()
       ;
+      $cms->saveContent($p);
     }
+
     $this->initialized = true;
+   */
   }
 
   protected function getCms() {

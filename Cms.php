@@ -6,20 +6,21 @@
  * in the db as part of the object data. Therefore, the actual Cms object that you use must
  * know how to handle all of the classes of content that your app uses. This is accomplished
  * (theoretically) by overriding six methods in all descendent classes. Importantly, any
- * of these six methods throws an `UnknownContentClassException` when it encounters content
+ * of these six methods may throw an `UnknownContentClassException` when it encounters content
  * classes it doesn't explicitly know how to handle. Thus, when you override these methods,
  * you can first call `parent` to save the basic content data, then test for all the classes
  * you've added with your Cms derivative that need special attention. If an
  * `UnknownContentClassException` is thrown, that means that the given class couldn't be handled
- * and should be handled explicitly by your version of the method.
+ * and should be handled explicitly by your version of the method. (This means you should always
+ * wrap calls to `parent::*` in a try block that catches the `UnknownContentClassException`.)
  *
  * The six methods are:
  *
- * * `validateContent` - Does what it says
- * * `__saveContent` - Performs the actual mechanics of saving after validation
+ * * `validateContent` - Does what it says -- called from `saveContent`
+ * * `saveContent` - Performs the actual mechanics of saving after validation
  * * `saveExtraField` - Used to handle fields that may not be in the "content" table
  * * `deleteContent` - Can be overridden to delete additional records or resources related to the content
- * * `addAuxData` - called from all of the `getContent*` methods and used to augment the returned array with the correct fields
+ * * `addAuxData` - called from all of the `getContent*` methods and used to augment the returned array with the correct fields for each content class
  * * `dressData` - used to create Data Objects based on content class names in data array
  */
 namespace Skel;
@@ -27,17 +28,17 @@ namespace Skel;
 class Cms extends Db implements Interfaces\Cms {
   const VERSION = 1;
   const SCHEMA_NAME = "SkelCms";
-  protected static $__validContentClasses = null;
   protected static $validContentClasses = array('content', 'page', 'post');
-  protected $this->errors;
+  protected static $__validContentClasses = null;
+  protected $errors;
 
 
   public function deleteContent(Interfaces\Content $content) {
     if (!$content->getId()) return true;
 
-    $uri = $content->getUri();
+    $uri = $content->getContentUri();
     if ($uri->getScheme() == 'file') {
-      $filepath = $this->getContentDir()->getPath().'/'.$uri()->getHost().'/'.$uri->getPath();
+      $filepath = $this->getContentDir()->getPath().'/'.$uri->getHost().'/'.$uri->getPath();
       @unlink($filepath);
     }
 
@@ -49,7 +50,242 @@ class Cms extends Db implements Interfaces\Cms {
 
 
 
-  public function getContentAtUri(Interfaces\Uri $dataUri) {
+
+
+  // Query methods
+
+  public function getContentByAddress(string $address) {
+    $address = explode('/', $address);
+    $slug = array_pop($address);
+    $parent = implode('/',$address);
+    if ($parent == '') $parent = null;
+
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "parentAddress" = ? and "slug" = ?');
+    $stm->execute(array($parent, $slug));
+    $content = $this->getContentFromStatement($stm);
+    if ($content) $content = $content[0];
+    return $content;
+  }
+
+  public function getContentById(int $id) {
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "id" = ?');
+    $stm->execute(array($id));
+    $content = $this->getContentFromStatement($stm);
+    if ($content) $content = $content[0];
+    return $content;
+  }
+
+  public function getContentIndex(array $parents, int $limit=null, int $page=1) {
+    $orderby = 'ORDER BY "dateCreated" DESC ';
+    if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
+    $placeholder = array();
+    for($i = 0; $i < count($parents); $i++) $placeholder[] = '?';
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "parentAddress" IN ('.implode(', ', $placeholder).') '.$orderby.$limit);
+    $stm->execute($parents);
+    $content = $this->getContentFromStatement($stm);
+    return $content;
+  }
+
+  public function getParentOf(Interfaces\Content $content) {
+    if (!$content->getParentAddress()) return null;
+    return $this->getContentByAddress($content->getParentAddress());
+  }
+
+
+
+  public static function getValidContentClasses() {
+    if (static::$__validContentClasses) return static::$__validContentClasses;
+
+    $classes = static::$validContentClasses;
+    $parent = static::class;
+    while ($parent = get_parent_class($parent)) {
+      try {
+        $parentClasses = $parent::$validContentClasses;
+      } catch (\Throwable $e) {
+        $parentClasses = array();
+      }
+      $classes = array_merge($classes, $parentClasses);
+    }
+    static::$__validContentClasses = $classes;
+
+    return static::$__validContentClasses;
+  }
+
+
+
+
+  public function saveContent(Interfaces\Content $content) {
+    if (($errcount = count($content->getErrors())) > 0) throw new InvalidDataException("You have $errcount errors to fix: ".implode("; ", $content->getErrors()).";");
+    if (!$this->validateContent($content)) throw new InvalidContentException("There are errors in your content: ".implode('; ', $this->getErrors()));
+
+    $data = $this->convertToData($content->getChanges());
+
+    // Save the base fields that all content shares
+    $deferred = array();
+    if (array_key_exists('content', $data)) {
+      $deferred['content'] = $data['content'];
+      unset($data['content']);
+    }
+    if (array_key_exists('tags', $data)) {
+      $defferred['tags'] = $data['tags'];
+      unset($data['tags']);
+    }
+
+    $placeholders = array();
+    for($i = 0; $i < count($data); $i++) $placeholders[] = '?';
+
+    if ($id = $content->getId()) {
+      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($data)).'" = ? WHERE "id" = ?');
+      $stm->execute(array_merge($data, array($id)));
+    } else {
+      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($data)).'") VALUES ('.implode(',',$placeholders).')');
+      $stm->execute(array_values($data));
+      $id = $this->db->lastInsertId();
+      $content->setId($id);
+    }
+
+    foreach($deferred as $field => $val) $this->saveExtraField($content, $field, $val);
+    $this->saveExtraField($content, 'setBySystem', $content->getFieldsSetBySystem());
+
+    return true;
+  }
+
+  public function validateContent(Interfaces\Content $content) {
+    $valid = true;
+
+    // General validations first: No content can have an invalid class or a duplicate address
+
+    // Validate ContentClass
+    if (array_search($content->getContentClass(), static::getValidContentClasses()) === false) {
+      $this->setError('contentClass', "The specified content class `".$content->getContentClass()."` is not one of the currently designated valid content classes (`".implode('`, `', static::getValidContentClasses())."`).");
+      $valid = false;
+    }
+
+    // Validate Address
+    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
+    $stm->execute(array($content->getAddress(), $content->getId() ?: 0));
+    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($rows) > 0) {
+      $this->setError('address', 'The address you specified for this content ('.$content->getAddress().') is already being used by other content.');
+      $valid = false;
+    }
+
+    // Validate uniqueness of canonicalId + Lang
+    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "canonicalId" = ? and "lang" = ? and "id" != ?');
+    $stm->execute(array($content->getCanonicalId(), $content->getLang(), $content->getId() ?: 0));
+    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($rows) > 0) {
+      $this->setError('canonicalId', 'The canonical Id you specified for this content ('.$content->getCanonicalId().') is already being used by other content with the same language ('.$content->getLang().'). You must either change the language or change the canonical Id.');
+      $valid = false;
+    }
+
+    return $valid;
+  }
+
+
+
+
+
+
+
+
+
+  /******************************
+   * Internal Functions
+   * ***************************/
+
+  /**
+   * This is done in a strange manner to optimize efficiency. Rather than shooting off separate queries
+   * for each result row, it shoots off one query to get all tags for all pertinent results, then organizes
+   * the tags into a structure that it uses to populate each result's tags array
+   */
+  protected function attachContentAttributes(string $field, string $table, string $column, array &$data) {
+    if (!is_numeric(current(array_keys($data)))) {
+      $data = array($data);
+      $single = true;
+    }
+
+    $ids = array();
+    $placeholders = array();
+    foreach($data as $k => $r) {
+      $ids[] = $r['id'];
+      $placeholders[] = '?';
+    }
+
+    $stm = $this->db->prepare('SELECT "contentId", "'.$column.'" FROM "'.$table.'" WHERE "contentId" in ('.implode(', ', $placeholders).')');
+    $stm->execute($ids);
+    $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    $fields = array();
+    foreach($result as $r) {
+      if (!array_key_exists($r['contentId'], $fields)) $fields[$r['contentId']] = array();
+      $fields[$r['contentId']][] = $r[$column];
+    }
+
+    foreach($data as $k => $r) {
+      if (array_key_exists($r['id'], $fields)) $r[$field] = $fields[$r['id']];
+      else $r[$field] = array();
+      $data[$k] = $r;
+    }
+
+    return $single ? $data[0] : $data;
+  }
+
+
+
+  protected function convertToData(array $values) {
+    foreach($values as $k => $v) {
+      if (is_string($v) || is_int($v)) continue;
+      elseif (is_bool($v)) $values[$k] = (int)$v;
+      elseif (is_array($v)) $values[$k] = $this->convertToData($v);
+      elseif ($v instanceof \DateTime) $values[$k] = $v->format(\DateTime::ISO8601);
+      elseif ($v instanceof \Skel\Uri) $values[$k] = $v->toString();
+      elseif ($v instanceof \Skel\Content) $values[$k] = $v->getAddress();
+    }
+    return $values;
+  }
+
+
+
+  protected function dressData(array $data) {
+    switch($data['contentClass']) {
+      case 'content' : return new \Skel\Content($data); break;
+      case 'page' : return new \Skel\Page($data);
+      case 'post' : return new \Skel\Post($data);
+      default : throw new \Skel\UnknownContentClassException("Don't know how to dress `$data[contentClass]` content.");
+    }
+  }
+
+  protected function downgradeDatabase(int $targetVersion, int $fromVersion) {
+    // Nothing to downgrade yet
+  }
+
+
+  protected function getContentFromStatement(\PDOStatement $stm) {
+    $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    if (count($result) == 0) return null;
+
+    $this->addAuxData($result);
+    foreach($result as $k => $data) $result[$k] = $this->dressData($data);
+    return $result;
+  }
+
+
+
+
+  protected function addAuxData(array &$data) {
+    if (!is_numeric(current(array_keys($data)))) {
+      $data = array($data);
+      $single = true;
+    }
+
+    foreach($data as $k => $d) $data[$k]['content'] = $this->getContentAtUri(new Uri($d['contentUri']));
+    $this->attachContentAttributes('tags', 'content_tags', 'tag', $data);
+    $this->attachContentAttributes('setBySystem', 'content_fieldsSetBySystem', 'field', $data);
+    return $data;
+  }
+
+
+  protected function getContentAtUri(Interfaces\Uri $dataUri) {
     if ($dataUri->getScheme() != 'file') throw new IllegalContentUriException("Sorry, don't know how to get content from anywhere but the local machine :(");
     if ($dataUri->getHost() != 'pages') throw new IllegalContentUriException("Sorry, don't know how to get content from hosts other than 'pages', which references the currently configured content directory");
 
@@ -64,100 +300,7 @@ class Cms extends Db implements Interfaces\Cms {
     return '';
   }
 
-  public function getContentByAddress(string $addr) {
-    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "address" = ?');
-    $stm->execute(array($addr));
-    $content = $this->getContentFromStatement($stm);
-    if ($content) $content = $content[0];
-    return $content;
-  }
 
-  public function getContentById(int $id) {
-    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "id" = ?');
-    $stm->execute(array($id));
-    $content = $this->getContentFromStatement($stm);
-    if ($content) $content = $content[0];
-    return $content;
-  }
-
-  public function getContentWhere(string $where, array $values=array()) {
-    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and '.$where);
-    $stm->execute($values);
-    $rows = $this->getContentFromStatement($stm);
-    return $rows;
-  }
-
-  public function getContentIndex(string $category=null, int $limit=null, int $page=1) {
-    $orderby = 'ORDER BY "dateCreated" DESC ';
-    if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
-    if (!$category) {
-      $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "category" IS NOT NULL '.$orderby.$limit);
-      $stm->execute();
-    } else {
-      $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "category" = ? '.$orderby.$limit);
-      $stm->execute(array($category));
-    }
-    $content = $this->getContentFromStatement($stm);
-    return $content;
-  }
-
-
-
-  public static function getValidContentClasses() {
-    if (static::$__validContentClasses) return static::$__validContentClasses;
-
-    $classes = static::$validContentClasses;
-    $parent = static::class;
-    while ($parent = get_parent_class($parent)) $classes = array_merge($classes, $parent::$validContentClasses ?: array());
-    static::$__validContentClasses = $classes;
-
-    return static::$__validContentClasses;
-  }
-
-  public static function setValidContentClasses(array $classes) {
-    static::$validContentClasses = $classes;
-  }
-
-
-
-  public function saveContent(Interfaces\Content $content) {
-    if (($errcount = count($content->getErrors())) > 0) throw new InvalidDataException("You have $errcount errors to fix: ".implode("; ", $content->getErrors()).";");
-    if (!$this->validateContent($content)) throw new InvalidContentException("There are errors in your content: ".implode('; ', $this->getErrors());
-
-    return $this->__saveContent($content);
-  }
-
-  protected function __saveContent(Interfaces\Content $content) {
-    $changes = $content->getChanges();
-
-    // Save the base fields that all content shares
-    $deferrred = array();
-    if (array_key_exists('content', $changes)) {
-      $deferred['content'] = $changes['content'];
-      unset($changes['content']);
-    }
-    if (array_key_exists('tags', $changes)) {
-      $defferred['tags'] = $changes['tags'];
-      unset($changes['tags']);
-    }
-
-    $placeholders = array();
-    for($i = 0; $i < count($changes); $i++) $placeholders[] = '?';
-
-    if ($id = $content->getId()) {
-      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($changes)).'" = ? WHERE "id" = ?');
-      $stm->execute(array_merge($changes, array($id)));
-    } else {
-      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($changes)).'") VALUES ('.implode(',',$placeholders).')');
-      $stm->execute(array_values($changes));
-      $id = $this->db->lastInsertId();
-      $content->setId($id);
-    }
-
-    foreach($deferred as $field => $val) $this->saveExtraField($content, $field, $val);
-
-    return true;
-  }
 
   protected function saveExtraField(Interfaces\Content $content, string $field, $val) {
     $id = $content->getId();
@@ -180,23 +323,12 @@ class Cms extends Db implements Interfaces\Cms {
 
     // Save content Tags
     } elseif ($field == 'tags') {
-      $currentTags = array();
-      $select = 'SELECT "tag" FROM "content_tags" WHERE "contentId" = '.$id;
-      foreach($this->db->query($select, \PDO::FETCH_ASSOC) as $row) $currentTags[] = $row['tag'];
+      $this->updateContentAttributesTable('content_tags', 'tag', $content->getId(), $val);
+      return true;
 
-      foreach($currentTags as $v) {
-        if (array_search($v, $val) === false) {
-          $stm = $this->db->prepare('DELETE FROM "content_tags" WHERE "contentId" = ? and "tag" = ?');
-          $stm->execute(array($id, $v));
-        }
-      }
-
-      foreach($val as $v) {
-        if (array_search($v, $currentTags) === false) {
-          $stm = $this->db->prepare('INSERT INTO "content_tags" ("tag", "contentId") VALUES (?, ?)');
-          $stm->execute(array($v, $id));
-        }
-      }
+    // Fields set by system
+    } elseif ($field == 'setBySystem') {
+      $this->updateContentAttributesTable('content_fieldsSetBySystem', 'field', $content->getId(), $val);
       return true;
 
     // If the field is unknown, throw exception
@@ -205,148 +337,45 @@ class Cms extends Db implements Interfaces\Cms {
     }
   }
 
+  protected function updateContentAttributesTable(string $table, string $field, int $contentId, array $val) {
+    $current = array();
+    $currentSelect = 'SELECT "'.$field.'" FROM "'.$table.'" WHERE "contentId" = '.$contentId;
+    ($stm = $this->db->prepare($currentSelect))->execute();
+    foreach($stm->fetchAll(\PDO::FETCH_NUM) as $row) $current[] = $row[0];
 
-  public function validateContent(Interfaces\Content $content) {
-    $valid = true;
-
-    // General validations first: No content can have an invalid class or a duplicate address
-
-    // Validate ContentClass
-    if (array_search($content->getContentClass(), static::getValidContentClasses()) === false) {
-      $this->setError('contentClass', "The specified content class `".$content->getContentClass()."` is not one of the currently designated valid content classes (`".implode('`, `', static::getValidContentClasses())."`).");
-      $valid = false;
-    }
-
-    // Validate Address
-    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
-    $stm->execute(array($content->getAddress(), $content->getId() ?: 0));
-    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
-    if (count($rows) > 0) {
-      $this->setError('address', 'The address you specified for this content ('.$a.') is already being used by other content.');
-      $valid = false;
-    }
-
-    return $valid;
-  }
-
-
-
-
-
-
-
-
-
-  /******************************
-   * Internal Functions
-   * ***************************/
-
-  protected function attachTagsToData(array $data) {
-    $ids = array();
-    $placeholders = array();
-    foreach($data as $k => $r) {
-      $ids[] = $r['id'];
-      $placeholders[] = '?';
-    }
-
-    $stm = $this->db->prepare('SELECT "contentId", "tag" FROM "content_tags" WHERE "contentId" in ('.implode(',', $placeholders).')');
-    $stm->execute($ids);
-    $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
-    $tags = array();
-    foreach($result as $r) {
-      if (!array_key_exists($r['contentId'], $tags)) $tags[$r['contentId']] = array();
-      $tags[$r['contentId']][] = $r['tag'];
-    }
-
-    foreach($data as $k => $r) {
-      if (array_key_exists($r['id'], $tags)) $r['tags'] = $tags[$r['id']];
-      else $r['tags'] = array();
-      $data[$k] = $r;
-    }
-    
-    return $data;
-  }
-
-
-
-
-  protected function dressData(array $data) {
-    switch($data['contentClass']) {
-      case 'content' : return new \Skel\Content($data); break;
-      case 'page' : return new \Skel\Page($data);
-      case 'post' : return new \Skel\Post($data);
-      default : throw new \Skel\UnknownContentClassException("Don't know how to dress `$data[contentClass]` content.");
-    }
-  }
-
-  protected function downgradeDatabase(int $targetVersion, int $fromVersion) {
-    // Nothing to downgrade yet
-  }
-
-
-  protected function getContentFromStatement(\PDOStatement $stm) {
-    $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
-    if (count($result) == 0) return null;
-
-    foreach($result as $k => $data) $result[$k] = $this->dressData($this->addAuxData($data));
-    return $result;
-  }
-
-
-
-
-  protected function addAuxData(array $data) {
-    $data['content'] = $this->getContentAtUri(new Uri($r['contentUri']));
-    $data = $this->attachTagsToData($data);
-    return $data;
-  }
-
-
-
-
-  protected function saveContentForContent(int $id, string $content) {
-    $contentUri = $this->db->query('SELECT "contentUri" FROM "content" WHERE "id" = '.$id);
-    $contentUri = $contentUri->fetch(\PDO::FETCH_ASSOC);
-    $contentUri = new Uri($contentUri['contentUri']);
-
-    return $this;
-  }
-
-  protected function saveTagsForContent(int $id, array $newTags) {
-    $currentTags = array();
-    foreach($this->db->query('SELECT "tag" FROM "content_tags" WHERE "contentId" = '.$id, \PDO::FETCH_ASSOC) as $row) {
-      $currentTags[] = $row['tag'];
-    }
-
-    foreach($currentTags as $v) {
-      if (array_search($v, $newTags) === false) {
-        $stm = $this->db->prepare('DELETE FROM "content_tags" WHERE "contentId" = ? and "tag" = ?');
-        $stm->execute(array($id, $v));
+    foreach($current as $v) {
+      if (array_search($v, $val) === false) {
+        $stm = $this->db->prepare('DELETE FROM "'.$table.'" WHERE "contentId" = ? and "'.$field.'" = ?');
+        $stm->execute(array($contentId, $v));
       }
     }
 
-    foreach($newTags as $v) {
-      if (array_search($v, $currentTags) === false) {
-        $stm = $this->db->prepare('INSERT INTO "content_tags" ("tag", "contentId") VALUES (?, ?)');
-        $stm->execute(array($v, $id));
+    foreach($val as $v) {
+      if (array_search($v, $current) === false) {
+        $stm = $this->db->prepare('INSERT INTO "'.$table.'" ("'.$field.'", "contentId") VALUES (?, ?)');
+        $stm->execute(array($v, $contentId));
       }
     }
+    return true;
   }
+
 
 
 
   protected function upgradeDatabase(int $targetVersion, int $fromVersion) {
     if ($fromVersion < 1 && $targetVersion >= 1) {
-      $this->db->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY NOT NULL, "active" INTEGER NOT NULL DEFAULT 1, "address" TEXT NOT NULL, "author" TEXT NULL, "canonicalId" TEXT NOT NULL, "category" TEXT NULL, "contentClass" TEXT NOT NULL DEFAULT \'content\', "contentType" TEXT NOT NULL DEFAULT \'text/plain; charset=UTF-8\', "contentUri" TEXT NOT NULL, "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "hasImg" INTEGER NOT NULL DEFAULT 0, "imgPrefix" TEXT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "title" TEXT NOT NULL)');
-      $this->db->exec('CREATE TABLE "content_tags" ("id" INTEGER PRIMARY KEY NOT NULL, "contentId" INTEGER NOT NULL, "tag" TEXT NOT NULL)');
+      $this->db->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY, "active" INTEGER NOT NULL DEFAULT 1, "author" TEXT NULL, "canonicalId" TEXT NOT NULL, "contentClass" TEXT NOT NULL DEFAULT \'content\', "contentType" TEXT NOT NULL DEFAULT \'text/plain; charset=UTF-8\', "contentUri" TEXT NOT NULL, "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "hasImg" INTEGER NOT NULL DEFAULT 0, "imgPrefix" TEXT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "parentAddress" TEXT NULL, "slug" TEXT NOT NULL, "title" TEXT NOT NULL)');
+      $this->db->exec('CREATE TABLE "content_tags" ("id" INTEGER PRIMARY KEY, "contentId" INTEGER NOT NULL, "tag" TEXT NOT NULL)');
+      $this->db->exec('CREATE TABLE "content_fieldsSetBySystem" ("id" INTEGER PRIMARY KEY, "contentId" INTEGER NOT NULL, "field" TEXT NOT NULL)');
 
       $this->db->exec('CREATE INDEX "tags_content_id_index" ON "content_tags" ("contentId")');
       $this->db->exec('CREATE INDEX "tags_index" ON "content_tags" ("tag")');
       $this->db->exec('CREATE INDEX "content_active_index" ON "content" ("active")');
-      $this->db->exec('CREATE INDEX "content_category_index" ON "content" ("category")');
+      $this->db->exec('CREATE INDEX "content_address_index" ON "content" ("parentAddress","slug")');
       $this->db->exec('CREATE INDEX "content_dateCreated_index" ON "content" ("dateCreated")');
       $this->db->exec('CREATE INDEX "content_dateUpdated_index" ON "content" ("dateUpdated")');
       $this->db->exec('CREATE INDEX "content_lang_index" ON "content" ("lang")');
+      $this->db->exec('CREATE INDEX "fieldsSetBySystem_contentId_index" ON "content_fieldsSetBySystem" ("contentId")');
     }
   }
 
