@@ -9,7 +9,7 @@ namespace Skel;
  *
  * @known_direct_subclasses Page
  * */
-class Content implements Interfaces\Content {
+class Content extends DataClass implements Interfaces\Content {
   protected $active;
   protected $canonicalId;
   protected $content;
@@ -30,13 +30,15 @@ class Content implements Interfaces\Content {
   protected $errors = array();
   protected $setBySystem = array();
 
-  protected static $primaryFields = array('active', 'canonicalId', 'content', 'contentClass', 'contentType', 'contentUri', 'dateCreated', 'dateExpired', 'dateUpdated', 'id', 'lang', 'parentAddress', 'slug', 'title');
-  protected static $__primaryFields;
-
   public function __construct(array $data=array()) {
     if (count($data) > 0) $this->loadFromData($data);
     else $this->loadDefaults();
   }
+
+  // TODO: CHANGE THIS!! It's possible for someone to try to create new content by passing in an array
+  // from a user POST. This would bypass validation and be generally bad. Should probably change
+  // this to a static method that reflects restoring a stored object, then allow __construct to receive
+  // partial data that it loads via set* methods
 
   protected function loadFromData(array $data) {
     $fields = array('active', 'canonicalId', 'content', 'contentClass', 'contentType', 'contentUri', 'dateCreated', 'dateExpired', 'dateUpdated', 'id', 'lang', 'parentAddress', 'setBySystem', 'slug', 'tags', 'title');
@@ -252,7 +254,6 @@ class Content implements Interfaces\Content {
     $required = array(
       'canonicalId' => 'The Canonical Id is required.',
       'contentClass' => 'You must specify a valid Content Class for this content.',
-      'content' => 'You\'ve gotta set some content.',
       'contentType' => 'You must specifiy a valid Content Type for this content.',
       'contentUri' => 'You must specifiy a valid Content Uri for this content.',
       'slug' => 'You must supply a "slug", or "pretty url" for your content. Note that this should not have slashes in it.',
@@ -331,38 +332,6 @@ class Content implements Interfaces\Content {
     $str = array_pop($str);
     $str = preg_replace(array('/([A-Z])/', '/_-/'), array('-\1','_'), $str);
     return trim(strtolower($str), '-');
-  }
-    
-  public function getChanges() {
-    $changes = array();
-    foreach($this->changes as $k => $prev) $changes[$k] = $this->$k;
-    return $changes;
-  }
-  public function fieldSetBySystem(string $field) { return (bool) $this->setBySystem[$field]; }
-  public function getFieldsSetBySystem() {
-    $fields = array();
-    foreach($this->setBySystem as $field => $set) {
-      if ($set) $fields[] = $field;
-    }
-    return $fields;
-  }
-
-  public function getPrimaryFields() {
-    if (static::$__primaryFields) return static::$__primaryFields;
-
-    $fields = static::$primaryFields;
-    $parent = static::class;
-    while ($parent = get_parent_class($parent)) {
-      try {
-        $parentFields = $parent::$primaryFields;
-      } catch (\Throwable $e) {
-        $parentFields = array();
-      }
-      $fields = array_merge($fields, $parentFields);
-    }
-    static::$__primaryFields = $fields;
-
-    return static::$__primaryFields;
   }
 }
 
