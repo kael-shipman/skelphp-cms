@@ -30,22 +30,26 @@ class Cms extends Db implements Interfaces\Cms {
   const SCHEMA_NAME = "SkelCms";
   protected static $validContentClasses = array('content', 'page', 'post');
   protected static $__validContentClasses = null;
+  protected static $contentTableFields = array('active', 'author', 'canonicalId', 'content', 'contentClass', 'contentType', 'contentUri', 'dateCreated', 'dateExpired', 'dateUpdated', 'hasImg', 'id', 'imgPrefix', 'lang', 'parentAddress', 'slug', 'title');
+  protected static $__contentTableFields;
   protected $errors;
 
 
-  public function deleteContent(Interfaces\Content $content) {
+  public function deleteContent(Interfaces\Content $content, bool $deleteFiles=true) {
     if (!$content->getId()) return true;
-
-    $uri = $content->getContentUri();
-    if ($uri->getScheme() == 'file') {
-      $filepath = $this->getContentDir()->getPath().'/'.$uri->getHost().'/'.$uri->getPath();
-      @unlink($filepath);
-    }
 
     $this->db->beginTransaction();
     $this->db->exec('DELETE FROM "content_tags" WHERE "contentId" = '.$content->getId());
     $this->db->exec('DELETE FROM "content" WHERE "id" = '.$content->getId());
     $this->db->commit();
+
+    if ($deleteFiles) {
+      $uri = $content->getContentUri();
+      if ($uri->getScheme() == 'file') {
+        $filepath = $this->getContentDir()->getPath().'/'.$uri->getHost().'/'.$uri->getPath();
+        @unlink($filepath);
+      }
+    }
   }
 
 
@@ -75,7 +79,8 @@ class Cms extends Db implements Interfaces\Cms {
     return $content;
   }
 
-  public function getContentIndex(array $parents, int $limit=null, int $page=1) {
+  public function getContentIndex(array $parents=null, int $limit=null, int $page=1) {
+    if (!$parents) $parents = array();
     $orderby = 'ORDER BY "dateCreated" DESC ';
     if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
     $placeholder = array();
@@ -119,35 +124,29 @@ class Cms extends Db implements Interfaces\Cms {
     if (!$this->validateContent($content)) throw new InvalidContentException("There are errors in your content: ".implode('; ', $this->getErrors()));
 
     $data = $this->convertToData($content->getChanges());
+    $contentTableFields = $this->getContentTableFields();
 
-    // Save the base fields that all content shares
-    $deferred = array();
-    if (array_key_exists('content', $data)) {
-      $deferred['content'] = $data['content'];
-      unset($data['content']);
+    $contentChanges = array();
+    $extraChanges = array();
+    foreach($data as $field => $value) {
+      if (array_search($field, $contentTableFields) !== false) $contentChanges[$field] = $value;
+      else $extraChanges[$field] = $value;
     }
-    if (array_key_exists('tags', $data)) {
-      $defferred['tags'] = $data['tags'];
-      unset($data['tags']);
-    }
-
-    $placeholders = array();
-    for($i = 0; $i < count($data); $i++) $placeholders[] = '?';
 
     if ($id = $content->getId()) {
-      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($data)).'" = ? WHERE "id" = ?');
-      $stm->execute(array_merge($data, array($id)));
+      $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($contentChanges)).'" = ? WHERE "id" = ?');
+      $stm->execute(array_merge($contentChanges, array($id)));
     } else {
-      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($data)).'") VALUES ('.implode(',',$placeholders).')');
-      $stm->execute(array_values($data));
+      $placeholders = array();
+      for($i = 0; $i < count($contentChanges); $i++) $placeholders[] = '?';
+
+      $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($contentChanges)).'") VALUES ('.implode(',',$placeholders).')');
+      $stm->execute(array_values($contentChanges));
       $id = $this->db->lastInsertId();
       $content->setId($id);
     }
 
-    foreach($deferred as $field => $val) $this->saveExtraField($content, $field, $val);
-    $this->saveExtraField($content, 'setBySystem', $content->getFieldsSetBySystem());
-
-    return true;
+    foreach($extraChanges as $field => $value) $this->saveExtraField($content, $field, $value);
   }
 
   public function validateContent(Interfaces\Content $content) {
@@ -162,8 +161,8 @@ class Cms extends Db implements Interfaces\Cms {
     }
 
     // Validate Address
-    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
-    $stm->execute(array($content->getAddress(), $content->getId() ?: 0));
+    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "parentAddress" = ? and "slug" = ? and "id" != ?');
+    $stm->execute(array($content->getParentAddress(), $content->getSlug(), $content->getId() ?: 0));
     $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
     if (count($rows) > 0) {
       $this->setError('address', 'The address you specified for this content ('.$content->getAddress().') is already being used by other content.');
@@ -181,7 +180,6 @@ class Cms extends Db implements Interfaces\Cms {
 
     return $valid;
   }
-
 
 
 
@@ -238,8 +236,8 @@ class Cms extends Db implements Interfaces\Cms {
       elseif (is_bool($v)) $values[$k] = (int)$v;
       elseif (is_array($v)) $values[$k] = $this->convertToData($v);
       elseif ($v instanceof \DateTime) $values[$k] = $v->format(\DateTime::ISO8601);
-      elseif ($v instanceof \Skel\Uri) $values[$k] = $v->toString();
-      elseif ($v instanceof \Skel\Content) $values[$k] = $v->getAddress();
+      elseif ($v instanceof \Skel\Interfaces\Uri) $values[$k] = $v->toString();
+      elseif ($v instanceof \Skel\Interfaces\Content) $values[$k] = $v->getAddress();
     }
     return $values;
   }
@@ -249,8 +247,8 @@ class Cms extends Db implements Interfaces\Cms {
   protected function dressData(array $data) {
     switch($data['contentClass']) {
       case 'content' : return new \Skel\Content($data); break;
-      case 'page' : return new \Skel\Page($data);
-      case 'post' : return new \Skel\Post($data);
+      case 'page' : return new \Skel\Page($data); break;
+      case 'post' : return new \Skel\Post($data); break;
       default : throw new \Skel\UnknownContentClassException("Don't know how to dress `$data[contentClass]` content.");
     }
   }
@@ -281,7 +279,9 @@ class Cms extends Db implements Interfaces\Cms {
     foreach($data as $k => $d) $data[$k]['content'] = $this->getContentAtUri(new Uri($d['contentUri']));
     $this->attachContentAttributes('tags', 'content_tags', 'tag', $data);
     $this->attachContentAttributes('setBySystem', 'content_fieldsSetBySystem', 'field', $data);
-    return $data;
+
+    if ($single) return $data[0];
+    else return $data;
   }
 
 
@@ -298,6 +298,24 @@ class Cms extends Db implements Interfaces\Cms {
     }
 
     return '';
+  }
+
+  public function getContentTableFields() {
+    if (static::$__contentTableFields) return static::$__contentTableFields;
+
+    $fields = static::$contentTableFields;
+    $parent = static::class;
+    while ($parent = get_parent_class($parent)) {
+      try {
+        $parentFields = $parent::$contentTableFields;
+      } catch (\Throwable $e) {
+        $parentFields = array();
+      }
+      $fields = array_merge($fields, $parentFields);
+    }
+    static::$__contentTableFields = $fields;
+
+    return static::$__contentTableFields;
   }
 
 
@@ -368,8 +386,8 @@ class Cms extends Db implements Interfaces\Cms {
       $this->db->exec('CREATE TABLE "content_tags" ("id" INTEGER PRIMARY KEY, "contentId" INTEGER NOT NULL, "tag" TEXT NOT NULL)');
       $this->db->exec('CREATE TABLE "content_fieldsSetBySystem" ("id" INTEGER PRIMARY KEY, "contentId" INTEGER NOT NULL, "field" TEXT NOT NULL)');
 
-      $this->db->exec('CREATE INDEX "tags_content_id_index" ON "content_tags" ("contentId")');
-      $this->db->exec('CREATE INDEX "tags_index" ON "content_tags" ("tag")');
+      $this->db->exec('CREATE INDEX "tags_content_id_index" ON "content_tags" ("contentId","tag")');
+      $this->db->exec('CREATE INDEX "tags_index" ON "content_tags" ("tag", "contentId")');
       $this->db->exec('CREATE INDEX "content_active_index" ON "content" ("active")');
       $this->db->exec('CREATE INDEX "content_address_index" ON "content" ("parentAddress","slug")');
       $this->db->exec('CREATE INDEX "content_dateCreated_index" ON "content" ("dateCreated")');

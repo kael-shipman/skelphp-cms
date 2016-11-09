@@ -7,8 +7,6 @@ class Post extends Content implements Interfaces\Post {
   protected $hasImg;
   protected $imgPrefix;
 
-  protected static $primaryFields = array('author','hasImg','imgPrefix');
-
   protected function loadFromData(array $data) {
     parent::loadFromData($data);
 
