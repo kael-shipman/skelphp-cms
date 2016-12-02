@@ -101,6 +101,13 @@ abstract class DataClass extends Component implements Interfaces\DataClass, Inte
     return $dataVal;
   }
 
+  public static function getNormalizedClassName() {
+    $str = explode('\\', static::class);
+    $str = array_pop($str);
+    $str = preg_replace(array('/([A-Z])/', '/_-/'), array('-\1','_'), $str);
+    return trim(strtolower($str), '-');
+  }
+
   protected function typecheckAndConvertInput(string $field, $val) {
     if ($val === null) return $val;
 

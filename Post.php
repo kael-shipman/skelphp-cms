@@ -2,34 +2,21 @@
 namespace Skel;
 
 class Post extends Page implements Interfaces\Post {
-
-  protected $author;
-  protected $hasImg;
-  protected $imgPrefix;
-
-  protected function loadFromData(array $data) {
-    parent::loadFromData($data);
-
-    $fields = array('author', 'hasImg', 'imgPrefix');
-    foreach ($fields as $field) {
-      if (!array_key_exists($field, $data)) throw new InvalidDataException("Required field `$field` isn't set in the data to load into Post.");
-
-      if ($field == 'hasImg') $val = (bool) $data[$field];
-      else $val = $data[$field];
-
-      $this->$field = $val;
-    }
-  }
-
-  protected function loadDefaults() {
-    parent::loadDefaults();
+  public function __construct(Interfaces\Template $t=null) {
+    parent::__construct($t);
+    $this->addValidFields(array('author','hasImg','imgPrefix'));
     $this
-      ->setAuthor()
-      ->setHasImg()
-      ->setImgPrefix()
+      ->set('author', null, true)
+      ->set('hasImg', null, true)
+      ->set('imgPrefix', null, true)
     ;
-    $this->setBySystem = array_merge($this->setBySystem, array('author' => true, 'hasImg' => true, 'imgPrefix' => true));
   }
+
+
+
+
+
+
 
   public static function createImgPrefix(\DateTime $dateCreated, string $title) {
     $prefix = $dateCreated->format('Y-m-');
@@ -47,20 +34,6 @@ class Post extends Page implements Interfaces\Post {
     return $prefix.static::createSlug(implode('-', $bigWords));
   }
 
-  public function updateFieldsFromInput(array $data) {
-    parent::updateFieldsFromInput($data);
-    if ($data['author']) $this->set('author', (bool) $data['author']);
-    if ($data['hasImg']) $this->set('hasImg', (bool) $data['hasImg']);
-    if ($data['imgPrefix']) $this->set('imgPrefix', (bool) $data['imgPrefix']);
-  }
-
-
-
-  public function getAuthor() {
-    if (!$this->author) $author = 'Anonymous';
-    else $author = $this->author;
-    return $author;
-  }
   public function getContentExcerpt(int $words=40) {
     $content = $this->getContent();
     $nonwords = array(9 => true, 10 => true, 13 => true, 32 => true);
@@ -77,48 +50,48 @@ class Post extends Page implements Interfaces\Post {
     }
     return substr($content, 0, $n);
   }
-  public function getHasImg() { return $this->hasImg(); }
-  public function getImgPrefix() { return $this->imgPrefix; }
+
   public function getMainImgPath() {
-    if (!$this->parentAddress || !$this->imgPrefix || !$this->hasImg) return null;
-    return '/assets/imgs'.$this->parentAddress.'/'.$this->imgPrefix.'.jpg';
+    if (!$this->get('hasImg') || !$this->get('imgPrefix') || !$this->get('address')) return null;
+    return '/assets/imgs'.$this->getParentAddress().'/'.$this->get('imgPrefix').'.jpg';
   }
-  public function hasImg() { return $this->hasImg; }
+
+  public function hasImg() { return $this->get('hasImg'); }
 
 
 
-  public function setAuthor(string $newVal=null, bool $setBySystem=false) {
-    $this->setData('author', $newVal, $setBySystem);
-    return $this;
-  }
-  public function setDateCreated(\DateTime $newVal=null, bool $setBySystem=false) {
-    parent::setDateCreated($newVal, $setBySystem);
-    return $this;
-  }
-  public function setHasImg(bool $newVal=false, bool $setBySystem=false) {
-    $this->setData('hasImg', $newVal, $setBySystem);
-    return $this;
-  }
-  public function setImgPrefix(string $newVal=null, bool $setBySystem=false) {
-    $this->setData('imgPrefix', $newVal, $setBySystem);
-    return $this;
-  }
-  public function setTitle(string $newVal=null, bool $setBySystem=false) {
-    parent::setTitle($newVal);
-    return $this;
-  }
 
 
-  protected function fireEvent(string $field) {
-    parent::fireEvent($field);
+
+
+
+  protected function convertDataToField(string $field, $dataVal) {
+    if ($field == 'hasImg') return (bool)$dataVal;
+    return parent::convertDataToField($field, $dataVal);
+  }
+
+  protected function onFieldChange(string $event, Interfaces\DataClass $dataclass, string $field, $oldVal, $newVal) {
     if ($field == 'dateCreated' || $field == 'title') {
-      if ($this->fieldSetBySystem('imgPrefix') && $this->title && $this->dateCreated) $this->setImgPrefix(static::createImgPrefix($this->dateCreated, $this->title), true);
+      if ($this->fieldSetBySystem('imgPrefix') && ($title = $this->get('title')) && ($date = $this->get('dateCreated'))) $this->set('imgPrefix', static::createImgPrefix($date, $title), true);
     }
+    return parent::onFieldChange($event,$dataclass,$field,$oldVal,$newVal);
   }
 
+  protected function typecheckAndConvertInput(string $field, $val) {
+    if ($val === null) return $val;
 
+    if ($field == 'hasImg') {
+      if (!is_bool($val)) throw new \InvalidArgumentException("Field `$field` must be a boolean value!");
+      return (int)$val;
+    }
+    if ($field == 'author' || $field == 'imgPrefix') {
+      if (!is_string($val)) throw new \InvalidArgumentException("Field `$field` must be a string!");
+      return $val;
+    }
+    return parent::typecheckAndConvertInput($field, $val);
+  }
 
-  protected function validate(string $field) {
+  protected function validateField(string $field) {
     $val = $this->$field;
     $required = array(
       'hasImg' => 'All posts must have the `hasImg` flag set',
