@@ -1,7 +1,7 @@
 <?php
 namespace Skel;
 
-class Post extends Content implements Interfaces\Post {
+class Post extends Page implements Interfaces\Post {
 
   protected $author;
   protected $hasImg;
@@ -47,6 +47,12 @@ class Post extends Content implements Interfaces\Post {
     return $prefix.static::createSlug(implode('-', $bigWords));
   }
 
+  public function updateFieldsFromInput(array $data) {
+    parent::updateFieldsFromInput($data);
+    if ($data['author']) $this->set('author', (bool) $data['author']);
+    if ($data['hasImg']) $this->set('hasImg', (bool) $data['hasImg']);
+    if ($data['imgPrefix']) $this->set('imgPrefix', (bool) $data['imgPrefix']);
+  }
 
 
 
