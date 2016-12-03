@@ -1,7 +1,7 @@
 <?php
 namespace Skel;
 
-abstract class DataClass extends ValidatedComponent implements Interfaces\DataClass, Interfaces\ErrorHandler {
+abstract class DataClass extends DefinedComponent implements Interfaces\DataClass, Interfaces\ErrorHandler {
   use ErrorHandlerTrait;
 
   protected $changes = array();
@@ -14,13 +14,13 @@ abstract class DataClass extends ValidatedComponent implements Interfaces\DataCl
   // Constructors
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
     parent::__construct($elements, $t);
-    $this->addValidFields(array('id'));
+    $this->addFields(array('id'));
     $this->set('id', null, true);
   }
 
   public static function createFromUserInput(array $data) {
     $o = new static();
-    foreach($o->getValidFields() as $field) $o->set($field, $o->convertDataToField($field, $data[$field]), false);
+    foreach($o->getFields() as $field) $o->set($field, $o->convertDataToField($field, $data[$field]), false);
     return $o;
   }
 

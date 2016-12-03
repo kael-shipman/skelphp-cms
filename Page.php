@@ -13,7 +13,7 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
 
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
     parent::__construct($elements, $t);
-    $this->addValidFields(array('active','address','canonicalId','content','contentClass','dateCreated','dateExpired','dateUpdated','lang','tags','title'));
+    $this->addFields(array('active','address','canonicalId','content','contentClass','dateCreated','dateExpired','dateUpdated','lang','tags','title'));
     $this
       ->set('active', true, true)
       ->set('address', null, true)

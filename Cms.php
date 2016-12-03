@@ -129,7 +129,7 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
     $contentChanges = array();
     $extraChanges = array();
-    foreach($content->getValidFields() as $field) {
+    foreach($content->getFields() as $field) {
       $value = $content->getRaw($field);
       if ($value instanceof DataCollection) $extraChanges[] = $value;
       elseif ($content->fieldHasChanged($field)) $contentChanges[$field] = $value;
