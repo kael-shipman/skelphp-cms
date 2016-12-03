@@ -44,11 +44,11 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
    * *************************/
 
   public function deleteContent(Interfaces\Content $content) {
-    if (!$content->getId()) return true;
+    if (!$content['id']) return true;
 
     $this->db->beginTransaction();
-    $this->db->exec('DELETE FROM "content_tags" WHERE "contentId" = '.$content->getId());
-    $this->db->exec('DELETE FROM "content" WHERE "id" = '.$content->getId());
+    $this->db->exec('DELETE FROM "content_tags" WHERE "contentId" = '.$content['id']);
+    $this->db->exec('DELETE FROM "content" WHERE "id" = '.$content['id']);
     $this->db->commit();
   }
 
@@ -94,8 +94,8 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     return null;
   }
 
-  public function getContentIndex(array $parents=null, int $limit=null, int $page=1) {
-    $orderby = 'ORDER BY "dateCreated" DESC ';
+  public function getContentIndex(array $parents=null, int $limit=null, int $page=1, $orderby='"dateCreated" DESC') {
+    $orderby = 'ORDER BY '.$orderby.' ';
     if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
 
     if (!$parents) $parents = array();
@@ -122,22 +122,20 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
 
 
-  /*
+  // TODO: Rename and refactor this. Not everything is "Content" (e.g., tags, media, etc.)
   public function saveContent(Interfaces\Content $content) {
     if (($errcount = $content->numErrors()) > 0) throw new InvalidDataException("You have $errcount errors to fix: ".implode("; ", $content->getErrors()).";");
-    if (!$this->validateContent($content)) throw new InvalidContentException("There are errors in your content: ".implode('; ', $this->getErrors()));
-
-    $data = $this->convertToData($content->getChanges());
-    $contentTableFields = $this->getContentTableFields();
+    if (!$this->validateContent($content)) throw new InvalidContentException("There are errors in your content: ".implode('; ', $this->getErrors()).";");
 
     $contentChanges = array();
     $extraChanges = array();
-    foreach($data as $field => $value) {
-      if (array_search($field, $contentTableFields) !== false) $contentChanges[$field] = $value;
-      else $extraChanges[$field] = $value;
+    foreach($content->getValidFields() as $field) {
+      $value = $content->getRaw($field);
+      if ($value instanceof DataCollection) $extraChanges[] = $value;
+      elseif ($content->fieldHasChanged($field)) $contentChanges[$field] = $value;
     }
 
-    if ($id = $content->getId()) {
+    if ($id = $content['id']) {
       $stm = $this->db->prepare('UPDATE "content" SET "'.implode('" = ?, "', array_keys($contentChanges)).'" = ? WHERE "id" = ?');
       $stm->execute(array_merge($contentChanges, array($id)));
     } else {
@@ -147,43 +145,36 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
       $stm = $this->db->prepare('INSERT INTO "content" ("'.implode('", "', array_keys($contentChanges)).'") VALUES ('.implode(',',$placeholders).')');
       $stm->execute(array_values($contentChanges));
       $id = $this->db->lastInsertId();
-      $content->setId($id);
+      $content['id'] = $id;
     }
 
-    foreach($extraChanges as $field => $value) $this->saveExtraField($content, $field, $value);
+    //foreach($extraChanges as $field => $value) $this->saveExtraField($content, $field, $value);
   }
 
   public function validateContent(Interfaces\Content $content) {
-    $valid = true;
-
-    // General validations first: No content can have an invalid class or a duplicate address
-
-    // Validate ContentClass
-    $valid_classes = array('content','page','post');
-    if (array_search($content->getContentClass(), $valid_classes) === false) {
-      $this->setError('contentClass', "The specified content class `".$content->getContentClass()."` is not one of the currently designated valid content classes (`".implode('`, `', $valid_classes)."`).");
-      $valid = false;
-    }
+    // General validations first: No content can have a duplicate address
 
     // Validate Address
-    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "parentAddress" = ? and "slug" = ? and "id" != ?');
-    $stm->execute(array($content->getParentAddress(), $content->getSlug(), $content->getId() ?: 0));
+    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
+    $stm->execute(array($content['address'], $content['id'] ?: 0));
     $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
     if (count($rows) > 0) {
-      $this->setError('address', 'The address you specified for this content ('.$content->getAddress().') is already being used by other content.');
-      $valid = false;
+      $this->setError('address', 'The address you specified for this content ('.$content['address'].') is already being used by other content.', 'uniqueness');
+    } else {
+      $this->clearError('address', 'uniqueness');
     }
 
     // Validate uniqueness of canonicalId + Lang
     $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "canonicalId" = ? and "lang" = ? and "id" != ?');
-    $stm->execute(array($content->getCanonicalId(), $content->getLang(), $content->getId() ?: 0));
+    $stm->execute(array($content['canonicalId'], $content['lang'], $content['id'] ?: 0));
     $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
     if (count($rows) > 0) {
-      $this->setError('canonicalId', 'The canonical Id you specified for this content ('.$content->getCanonicalId().') is already being used by other content with the same language ('.$content->getLang().'). You must either change the language or change the canonical Id.');
-      $valid = false;
+      $this->setError('canonicalId', 'The canonical Id you specified for this content ('.$content['canonicalId'].') is already being used by other content with the same language ('.$content['lang'].'). You must either change the language or change the canonical Id.', 'uniqueness');
+    } else {
+      $this->clearError('canonicalId', 'uniqueness');
     }
 
-    return $valid;
+    return $this->numErrors() == 0;
   }
 
 
@@ -310,27 +301,11 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
 
   protected function saveExtraField(Interfaces\Content $content, string $field, $val) {
-    $id = $content->getId();
-
-    // Save Content Field
-    if ($field == 'content') {
-      if ($content->getContentUri()->getScheme() != 'file') throw new IllegalDataUriException("Sorry, don't know how to handle schemes other than `file` :(");
-      if ($content->getContentUri()->getHost() != 'pages') throw new IllegalDataUriException("Sorry, don't know how to handle hosts other than 'pages', which references the `pages` directory of the currently configured content directory");
-
-      $path = $this->getContentDir()->getPath()."/pages";
-      if (!is_dir($path)) throw new NonexistentFileException("Can't find the `pages` directory within the current content directory. Searched at `$path`");
-
-      $path .= $content->getContentUri()->getPath();
-      $filename = basename($path);
-      $dir = substr($path, 0, strlen($path)-strlen($filename)-1);
-
-      if (!is_dir($dir)) @mkdir($dir, 0777, true); 
-      file_put_contents($path, $val);
-      return true;
+    $id = $content['id'];
 
     // Save content Tags
-    } elseif ($field == 'tags') {
-      $this->updateContentAttributesTable('content_tags', 'tag', $content->getId(), $val);
+    if ($field == 'tags') {
+      $this->updateContentAttributesTable('content_tags', 'tag', $content['id'], $val);
       return true;
 
     // If the field is unknown, throw exception
