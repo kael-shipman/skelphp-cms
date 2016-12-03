@@ -44,12 +44,16 @@ abstract class DataClass extends ValidatedComponent implements Interfaces\DataCl
   // Data Handling
 
   public function get($field) {
-    return $this->convertDataToField($field, $this[$field]);
+    return $this->convertDataToField($field, $this->elements[$field]);
+  }
+
+  public function getRaw($field) {
+    return $this->elements[$field];
   }
 
   public function set(string $field, $val, bool $setBySystem=false) {
     if ($val instanceof DataCollection) {
-      $this[$field] = $val;
+      $this->elements[$field] = $val;
       return $this;
     }
 
@@ -61,7 +65,7 @@ abstract class DataClass extends ValidatedComponent implements Interfaces\DataCl
       $this->changes[$field][] = $prevVal;
     }
 
-    $this[$field] = $val;
+    $this->elements[$field] = $val;
     $this->setBySystem[$field] = $setBySystem;
     $this->validateField($field);
 
@@ -84,6 +88,7 @@ abstract class DataClass extends ValidatedComponent implements Interfaces\DataCl
 
   public function fieldSetBySystem(string $field) { return (bool)$this->setBySystem[$field]; }
   public function getChanges() { return $this->changes; }
+  public function fieldHasChanged(string $field) { return array_key_exists($field, $this->changes); }
   public function getFieldsSetBySystem() {
     $fields = array();
     foreach($this->setBySystem as $field => $set) {
@@ -116,6 +121,25 @@ abstract class DataClass extends ValidatedComponent implements Interfaces\DataCl
       return $val;
     }
     throw new UnknownFieldException("`$field` is not a known field for this object! All known fields must be type-checked and converted on input using the `typecheckAndConvertInput` function.");
+  }
+
+
+
+
+  // Overrides
+
+  public function offsetGet($key) {
+    parent::offsetGet($key);
+    return $this->get($key);
+  }
+  public function offsetSet($key, $val) {
+    $oldVal = $this->elements[$key];
+    parent::offsetSet($key, $val);
+    $this->elements[$key] = $oldVal;
+    $this->set($key, $val);
+  }
+  public function offsetUnset($key) {
+    $this->set($key, null);
   }
 
 
