@@ -1,7 +1,7 @@
 <?php
 namespace Skel;
 
-abstract class DataClass extends Component implements Interfaces\DataClass, Interfaces\ErrorHandler {
+abstract class DataClass extends Component implements Interfaces\DataClass, Interfaces\DefinedComponent, Interfaces\ErrorHandler {
   use ErrorHandlerTrait;
 
   protected $definedFields = array();
