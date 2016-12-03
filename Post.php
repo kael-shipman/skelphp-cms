@@ -4,7 +4,7 @@ namespace Skel;
 class Post extends Page implements Interfaces\Post {
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
     parent::__construct($elements, $t);
-    $this->addFields(array('author','hasImg','imgPrefix'));
+    $this->addDefinedFields(array('author','hasImg','imgPrefix'));
     $this
       ->set('author', null, true)
       ->set('hasImg', null, true)

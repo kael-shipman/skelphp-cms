@@ -1,9 +1,10 @@
 <?php
 namespace Skel;
 
-abstract class DataClass extends DefinedComponent implements Interfaces\DataClass, Interfaces\ErrorHandler {
+abstract class DataClass extends Component implements Interfaces\DataClass, Interfaces\ErrorHandler {
   use ErrorHandlerTrait;
 
+  protected $definedFields = array();
   protected $changes = array();
   protected $setBySystem = array();
 
@@ -14,13 +15,13 @@ abstract class DataClass extends DefinedComponent implements Interfaces\DataClas
   // Constructors
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
     parent::__construct($elements, $t);
-    $this->addFields(array('id'));
+    $this->addDefinedFields(array('id'));
     $this->set('id', null, true);
   }
 
   public static function createFromUserInput(array $data) {
     $o = new static();
-    foreach($o->getFields() as $field) $o->set($field, $o->convertDataToField($field, $data[$field]), false);
+    foreach($o->getDefinedFields() as $field) $o->set($field, $o->convertDataToField($field, $data[$field]), false);
     return $o;
   }
 
@@ -86,15 +87,28 @@ abstract class DataClass extends DefinedComponent implements Interfaces\DataClas
   
   // Public
 
+  public function addDefinedFields(array $fields) {
+    foreach($fields as $f) {
+      if (array_search($f, $this->definedFields) === false) $this->definedFields[] = $f;
+      $this->registerArrayKey($f);
+      if (!array_key_exists($f, $this->elements)) $this->elements[$f] = null;
+    }
+  }
   public function fieldSetBySystem(string $field) { return (bool)$this->setBySystem[$field]; }
-  public function getChanges() { return $this->changes; }
   public function fieldHasChanged(string $field) { return array_key_exists($field, $this->changes); }
+  public function getChanges() { return $this->changes; }
+  public function getDefinedFields() { return $this->definedFields; }
   public function getFieldsSetBySystem() {
     $fields = array();
     foreach($this->setBySystem as $field => $set) {
       if ($set) $fields[] = $field;
     }
     return $fields;
+  }
+  public function removeDefinedFields(array $fields) {
+    foreach($fields as $f) {
+      while (($k = array_search($f, $this->definedFields)) !== false) unset($this->definedFields[$k]);
+    }
   }
 
 
@@ -129,18 +143,23 @@ abstract class DataClass extends DefinedComponent implements Interfaces\DataClas
   // Overrides
 
   public function offsetGet($key) {
-    parent::offsetGet($key);
-    return $this->get($key);
+    if (array_search($key, $this->definedFields) === false) return parent::offsetGet($key);
+    else return $this->get($key);
   }
   public function offsetSet($key, $val) {
-    $oldVal = $this->elements[$key];
-    parent::offsetSet($key, $val);
-    $this->elements[$key] = $oldVal;
-    $this->set($key, $val);
+    if (array_search($key, $this->definedFields) === false) return parent::offsetSet($key, $val);
+    else {
+      if (array_search($key, $this->keys) === false) $this->keys[] = $key;
+      $this->set($key, $val);
+    }
+    return;
   }
   public function offsetUnset($key) {
-    $this->set($key, null);
+    if (array_search($key, $this->definedFields) === false) return parent::offsetUnset($key);
+    else $this->set($key, null);
+    return;
   }
+
 
 
 
