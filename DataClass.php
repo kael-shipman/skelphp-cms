@@ -1,7 +1,7 @@
 <?php
 namespace Skel;
 
-abstract class DataClass extends Component implements Interfaces\DataClass, Interfaces\ErrorHandler {
+abstract class DataClass extends ValidatedComponent implements Interfaces\DataClass, Interfaces\ErrorHandler {
   use ErrorHandlerTrait;
 
   protected $changes = array();
@@ -12,15 +12,15 @@ abstract class DataClass extends Component implements Interfaces\DataClass, Inte
 
 
   // Constructors
-  public function __construct(Interfaces\Template $t=null) {
-    parent::__construct($t);
+  public function __construct(array $elements=array(), Interfaces\Template $t=null) {
+    parent::__construct($elements, $t);
     $this->addValidFields(array('id'));
     $this->set('id', null, true);
   }
 
   public static function createFromUserInput(array $data) {
     $o = new static();
-    foreach($data as $field => $val) $o->set($field, $val);
+    foreach($o->getValidFields() as $field) $o->set($field, $o->convertDataToField($field, $data[$field]), false);
     return $o;
   }
 
@@ -44,24 +44,24 @@ abstract class DataClass extends Component implements Interfaces\DataClass, Inte
   // Data Handling
 
   public function get($field) {
-    return $this->convertDataToField($field, $this->getElement($field));
+    return $this->convertDataToField($field, $this[$field]);
   }
 
   public function set(string $field, $val, bool $setBySystem=false) {
     if ($val instanceof DataCollection) {
-      $this->setElement($field, $val);
+      $this[$field] = $val;
       return $this;
     }
 
     $val = $this->typecheckAndConvertInput($field, $val);
-    $prevVal = $this->getElement($field);
+    $prevVal = $this[$field];
 
     if ($val != $prevVal || $prevVal === null) {
       if (!array_key_exists($field, $this->changes)) $this->changes[$field] = array();
       $this->changes[$field][] = $prevVal;
     }
 
-    $this->setElement($field, $val);
+    $this[$field] = $val;
     $this->setBySystem[$field] = $setBySystem;
     $this->validateField($field);
 

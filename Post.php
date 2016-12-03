@@ -2,8 +2,8 @@
 namespace Skel;
 
 class Post extends Page implements Interfaces\Post {
-  public function __construct(Interfaces\Template $t=null) {
-    parent::__construct($t);
+  public function __construct(array $elements=array(), Interfaces\Template $t=null) {
+    parent::__construct($elements, $t);
     $this->addValidFields(array('author','hasImg','imgPrefix'));
     $this
       ->set('author', null, true)
@@ -34,26 +34,16 @@ class Post extends Page implements Interfaces\Post {
     return $prefix.static::createSlug(implode('-', $bigWords));
   }
 
-  public function getContentExcerpt(int $words=40) {
-    $content = $this->getContent();
-    $nonwords = array(9 => true, 10 => true, 13 => true, 32 => true);
-    $n = 1;
-    $wordcount = 0;
-    $prevChar = $content[0];
-    while($wordcount < $words && $n < strlen($content)) {
-      $char = ord($content[$n++]);
-      if (isset($nonwords[$char])) {
-        if (isset($nonwords[$prevChar])) continue;
-        $wordcount++;
-      }
-      $prevChar = $char;
+  public function getAncestors() {
+    $path = explode('/', trim($this->getParentAddress(), '/'));
+    $section = array_shift($path);
+    $a = array();
+    $ancestors = array();
+    foreach($path as $p) {
+      $a[] = $p;
+      $ancestors[] = '/'.implode('/',$a);
     }
-    return substr($content, 0, $n);
-  }
-
-  public function getMainImgPath() {
-    if (!$this->get('hasImg') || !$this->get('imgPrefix') || !$this->get('address')) return null;
-    return '/assets/imgs'.$this->getParentAddress().'/'.$this->get('imgPrefix').'.jpg';
+    return $ancestors;
   }
 
   public function hasImg() { return $this->get('hasImg'); }
@@ -70,11 +60,11 @@ class Post extends Page implements Interfaces\Post {
     return parent::convertDataToField($field, $dataVal);
   }
 
-  protected function onFieldChange(string $event, Interfaces\DataClass $dataclass, string $field, $oldVal, $newVal) {
+  protected function onFieldChange(Interfaces\DataClass $dataclass, string $field, $oldVal, $newVal) {
     if ($field == 'dateCreated' || $field == 'title') {
       if ($this->fieldSetBySystem('imgPrefix') && ($title = $this->get('title')) && ($date = $this->get('dateCreated'))) $this->set('imgPrefix', static::createImgPrefix($date, $title), true);
     }
-    return parent::onFieldChange($event,$dataclass,$field,$oldVal,$newVal);
+    return parent::onFieldChange($dataclass,$field,$oldVal,$newVal);
   }
 
   protected function typecheckAndConvertInput(string $field, $val) {
@@ -94,21 +84,14 @@ class Post extends Page implements Interfaces\Post {
   protected function validateField(string $field) {
     $val = $this->$field;
     $required = array(
-      'hasImg' => 'All posts must have the `hasImg` flag set',
+      'hasImg' => 'All posts must have the `hasImg` flag set to true or false',
       'imgPrefix' => 'All posts must have an imgPrefix, even if they don\'t have any images',
     );
 
-    if (array_key_exists($field, $required) && $val === null) $error = $required[$field];
+    if (array_key_exists($field, $required) && !$val) $this->setError($field, $required[$field], 'required');
+    else $this->clearError($field, 'required');
 
-    if ($error) {
-      $this->setError($field, $error);
-      return false;
-    } else {
-      if (!parent::validate($field)) return false;
-
-      $this->clearError($field);
-      return true;
-    }
+    if ($field != 'hasImg' && $field != 'imgPrefix') parent::validateField($field);
   }
 }
 

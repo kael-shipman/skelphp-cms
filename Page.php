@@ -11,8 +11,8 @@ namespace Skel;
 class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
   use ObservableTrait;
 
-  public function __construct(Interfaces\Template $t=null) {
-    parent::__construct($t);
+  public function __construct(array $elements=array(), Interfaces\Template $t=null) {
+    parent::__construct($elements, $t);
     $this->addValidFields(array('active','address','canonicalId','content','contentClass','dateCreated','dateExpired','dateUpdated','lang','tags','title'));
     $this
       ->set('active', true, true)
@@ -24,7 +24,7 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
       ->set('dateExpired', null, true)
       ->set('dateUpdated', new \DateTime(), true)
       ->set('lang', 'en', true)
-      ->set('tags', new TagsCollection(), true)
+      ->set('tags', new DataCollection(), true)
       ->set('title', null, true)
     ;
     $this->registerListener('Change', $this, 'onFieldChange');
@@ -71,11 +71,11 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
 
   protected function convertDataToField(string $field, $dataVal) {
     if ($field == 'active') return (bool)$dataVal;
-    if (substr($field, 0, 4) == 'date') return \DateTime::createFromFormat(\DateTime::ISO8601, $dataVal);
+    if (substr($field, 0, 4) == 'date' && $dataVal !== null) return \DateTime::createFromFormat(\DateTime::ISO8601, $dataVal);
     return parent::convertDataToField($field, $dataVal);
   }
 
-  protected function onFieldChange(string $event, Interfaces\DataClass $dataclass, string $field, $oldVal, $newVal) {
+  protected function onFieldChange(Interfaces\DataClass $dataclass, string $field, $oldVal, $newVal) {
     if ($field == 'content') {
       if (!$this->fieldSetBySystem('content')) $this->set('dateUpdated', new \DateTime(), true);
     }
@@ -85,11 +85,10 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     if ($field == 'title') {
       if ($this->fieldSetBySystem('address') && $newVal) $this->set('address', $this->getParentAddress().'/'.static::createSlug($newVal), true);
     }
-    return parent::onFieldChange($event,$dataclass,$field,$oldVal,$newVal);
   }
 
   protected function typecheckAndConvertInput(string $field, $val) {
-    if ($val === null) return $val;
+    if ($val === null || $val instanceof DataCollection) return $val;
 
     if ($field == 'active') {
       if (!is_bool($val)) throw new \InvalidArgumentException('Field `active` must be a boolean value!');
@@ -97,7 +96,6 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     }
     if ($field == 'address' || $field == 'canonicalId' || $field == 'content' || $field == 'contentClass' || $field == 'lang' || $field == 'title') {
       if (!is_string($val)) throw new \InvalidArgumentException("Field `$field` must be a string!");
-      if ($field == 'contentClass' && $val != $this::getNormalizedClassName()) throw new \InvalidArgumentException("Field `$field` must be set to a valid content class! ('$val' given)");
       if ($field == 'lang' && strlen($val) != 2) throw new \InvalidArgumentException("Field `$field` must be a two-digit ISO language code!");
       return $val;
     }
@@ -110,7 +108,6 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
 
   protected function validateField(string $field) {
     $val = $this->get($field);
-    $error = null;
     $required = array(
       'address' => 'You must specify a public address at which this page can be found',
       'canonicalId' => 'The Canonical Id is required.',
@@ -129,7 +126,7 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
       if (!is_string($val) || strlen($val) != 2) $this->setError($field, 'You must specify a two-letter ISO 639-1 language code for your page.', 'value');
       else $this->clearError($field, 'value');
     } elseif ($field == 'contentClass') {
-      if ($val != $this::getNormalizedClassName()) $this->setError($field, "The classname you've specified is inconsistent with the current Object you're using!", 'value');
+      if ($val != static::getNormalizedClassName()) $this->setError($field, "The classname you've specified is inconsistent with the current Object you're using!", 'value');
       else $this->clearError($field, 'value');
     }
   }

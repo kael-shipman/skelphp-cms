@@ -55,12 +55,27 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
 
 
-  public function getContentByAddress(string $address) {
-    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "address" = ?');
-    $stm->execute(array($address));
+  public function getContentByAddress($val) {
+    if (is_array($val)) {
+      $single = false;
+      $placeholders = array();
+      for($i=0; $i < count($val); $i++) $placeholders = '?';
+      $query = ' in ('.implode(',', $placeholders).')';
+    } else {
+      $single = true;
+      $query = ' = ?';
+      $val = array($val);
+    }
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "address" '.$query);
+    $stm->execute($val);
     $content = $this->getObjectsFromQuery($stm);
-    if (count($content) > 0) return $content[0];
-    return null;
+    if (count($content) > 0) {
+      if ($single) return $content[0];
+      else return $content;
+    } else {
+      if ($single) return null;
+      else return $content;
+    }
   }
 
   public function getContentByCanonicalId(string $canonicalId, string $lang='en') {
@@ -90,6 +105,7 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
       $parents[$k] = "$p/%";
     }
     if (count($placeholders) > 0) $placeholders = 'and ('.implode(' or ', $placeholders).') ';
+    else $placeholders = '';
 
     $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 '.$placeholders.$orderby.$limit);
     $stm->execute($parents);
@@ -199,13 +215,13 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
       $placeholders[] = '?';
     }
 
-    $stm = $this->db->prepare('SELECT "contentId", "'.$column.'" FROM "'.$table.'" WHERE "contentId" in ('.implode(', ', $placeholders).')');
+    $stm = $this->db->prepare('SELECT * FROM "'.$table.'" WHERE "contentId" in ('.implode(', ', $placeholders).')');
     $stm->execute($ids);
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
     $fields = array();
     foreach($result as $r) {
       if (!array_key_exists($r['contentId'], $fields)) $fields[$r['contentId']] = array();
-      $fields[$r['contentId']][] = $r[$column];
+      $fields[$r['contentId']][] = $r;
     }
 
 
@@ -231,7 +247,7 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
     foreach($data as $k => $r) {
       if (array_key_exists($r['id'], $fields)) $r[$field] = new DataCollection($fields[$r['id']]);
-      else $r[$field] = array();
+      else $r[$field] = new DataCollection();
       $data[$k] = $r;
     }
 
@@ -252,14 +268,13 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     return $values;
   }
 
-
-
   protected function dressData(array $data) {
     switch($data['contentClass']) {
-      case 'content' : return new \Skel\Content($data);
-      case 'page' : return new \Skel\Page($data);
-      case 'post' : return new \Skel\Post($data);
-      default : throw new \Skel\UnknownContentClassException("Don't know how to dress `$data[contentClass]` content.");
+    case 'page' :
+      return \Skel\Page::restoreFromData($data);
+    case 'post' :
+      return \Skel\Post::restoreFromData($data);
+    default : throw new \Skel\UnknownContentClassException("Don't know how to dress `$data[contentClass]` content.");
     }
   }
 
@@ -286,45 +301,10 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
       $single = true;
     }
 
-    foreach($data as $k => $d) $data[$k]['content'] = $this->getContentAtUri(new Uri($d['contentUri']));
     $this->attachContentAttributes('tags', 'content_tags', 'tag', $data);
 
     if ($single) return $data[0];
     else return $data;
-  }
-
-
-  protected function getContentAtUri(Interfaces\Uri $dataUri) {
-    if ($dataUri->getScheme() != 'file') throw new IllegalContentUriException("Sorry, don't know how to get content from anywhere but the local machine :(");
-    if ($dataUri->getHost() != 'pages') throw new IllegalContentUriException("Sorry, don't know how to get content from hosts other than 'pages', which references the currently configured content directory");
-
-    //TODO: Figure out better way to get a configurable content directory and how to deal with languages
-    $dir = $this->getContentDir()->getPath();
-
-    if ($dataUri->getHost() == 'pages') {
-      $path = "$dir/pages".$dataUri->getPath();
-      if (is_file($path)) return file_get_contents($path);
-    }
-
-    return '';
-  }
-
-  public function getContentTableFields() {
-    if (static::$__contentTableFields) return static::$__contentTableFields;
-
-    $fields = static::$contentTableFields;
-    $parent = static::class;
-    while ($parent = get_parent_class($parent)) {
-      try {
-        $parentFields = $parent::$contentTableFields;
-      } catch (\Throwable $e) {
-        $parentFields = array();
-      }
-      $fields = array_merge($fields, $parentFields);
-    }
-    static::$__contentTableFields = $fields;
-
-    return static::$__contentTableFields;
   }
 
 
@@ -386,7 +366,7 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
   protected function upgradeDatabase(int $targetVersion, int $fromVersion) {
     if ($fromVersion < 1 && $targetVersion >= 1) {
-      $this->db->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY, "active" INTEGER NOT NULL DEFAULT 1, "address" TEXT NOT NULL, "author" TEXT NULL, "canonicalId" TEXT NOT NULL, "contentClass" TEXT NOT NULL DEFAULT \'content\', "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "setBySystem" TEXT NOT NULL DEFAULT \'{}\', "hasImg" INTEGER NOT NULL DEFAULT 0, "imgPrefix" TEXT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "title" TEXT NOT NULL)');
+      $this->db->exec('CREATE TABLE "content" ("id" INTEGER PRIMARY KEY, "active" INTEGER NOT NULL DEFAULT 1, "address" TEXT NOT NULL, "author" TEXT NULL, "canonicalId" TEXT NOT NULL, "content" TEXT NOT NULL DEFAULT \'\', "contentClass" TEXT NOT NULL DEFAULT \'content\', "dateCreated" TEXT NOT NULL, "dateExpired" TEXT DEFAULT NULL, "dateUpdated" TEXT NOT NULL, "setBySystem" TEXT NOT NULL DEFAULT \'{}\', "hasImg" INTEGER NOT NULL DEFAULT 0, "imgPrefix" TEXT NULL, "lang" TEXT NOT NULL DEFAULT \'en\', "title" TEXT NOT NULL)');
       $this->db->exec('CREATE TABLE "content_tags" ("id" INTEGER PRIMARY KEY, "contentId" INTEGER NOT NULL, "tag" TEXT NOT NULL)');
 
       $this->db->exec('CREATE INDEX "tags_content_id_index" ON "content_tags" ("contentId","tag")');
