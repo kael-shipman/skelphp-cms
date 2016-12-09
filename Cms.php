@@ -71,25 +71,23 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
 
   public function getContentByAddress($val) {
-    if (is_array($val)) {
-      $single = false;
-      $placeholders = array();
-      for($i=0; $i < count($val); $i++) $placeholders = '?';
-      $query = ' in ('.implode(',', $placeholders).')';
-    } else {
+    if (!is_array($val)) {
       $single = true;
-      $query = ' = ?';
       $val = array($val);
+    } else {
+      $single = false;
     }
-    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "address" '.$query);
+    $placeholders = array();
+    for($i=0; $i < count($val); $i++) $placeholders = '?';
+
+    $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "address" in ('.implode(',', $placeholders).')');
     $stm->execute($val);
     $content = $this->getObjectsFromQuery($stm);
-    if (count($content) > 0) {
-      if ($single) return $content[0];
-      else return $content;
-    } else {
-      if ($single) return null;
-      else return $content;
+
+    if (!$single) return $content;
+    else {
+      if (count($content) > 0) return $content[0];
+      else return null;
     }
   }
 
@@ -126,6 +124,21 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     $stm->execute($parents);
     $content = $this->getObjectsFromQuery($stm);
     return $content;
+  }
+
+  public function getOrAddTagsByName(array $tags) {
+    $placeholders = array();
+    for($i = 0; $i < count($tags); $i++) $placeholders[] = '?';
+    $stm = $this->db->prepare('SELECT * FROM "tags" WHERE "tag" IN ('.implode(',',$placeholders).') ORDER BY "tag"');
+    $stm->execute($tags);
+    $dbTags = new DataCollection($stm->fetchAll(\PDO::FETCH_ASSOC));
+    $this->prepareDataCollection($dbTags, 'tags');
+    
+    foreach($tags as $t) {
+      if (count($dbTags->filter('tag', $t)) == 0) $dbTags[] = (new ContentTag())->set('tag', $t);
+    }
+
+    return $dbTags;
   }
 
   public function getParentOf(Interfaces\Content $content) {
