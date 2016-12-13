@@ -1,7 +1,7 @@
 <?php
 namespace Skel;
 
-class ContentTag extends DataClass {
+class ContentTag extends DataClass implements Interfaces\ContentTag {
   const TABLE_NAME = "tags";
 
   public function __construct(array $e=array(), Interfaces\Template $t=null) {
@@ -29,6 +29,11 @@ class ContentTag extends DataClass {
 
     if (array_key_exists($field, $required) && ($val === null || $val === '')) $this->setError($field, $required[$field], 'required');
     else $this->clearError($field, 'required');
+  }
+
+  public function validateObject(Interfaces\Db $db) {
+    if (!$db->tagIsUnique($this)) $this->setError('tag', 'Tag is not unique! (This is a program glitch, as the program itself should provide deduplication. If you\'re getting this error, please tell someone.)', 'uniqueness');
+    else $this->clearError('tag', 'uniqueness');
   }
 }
 

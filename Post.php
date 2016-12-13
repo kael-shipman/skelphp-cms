@@ -3,8 +3,8 @@ namespace Skel;
 
 class Post extends Page implements Interfaces\Post {
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
-    parent::__construct($elements, $t);
     $this->addDefinedFields(array('author'));
+    parent::__construct($elements, $t);
   }
 
 

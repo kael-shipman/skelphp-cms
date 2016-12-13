@@ -9,23 +9,28 @@ namespace Skel;
  *
  * */
 class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
-  use ObservableTrait;
-
   const TABLE_NAME = 'content';
 
   protected $db;
 
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
-    parent::__construct($elements, $t);
     $this->addDefinedFields(array('active','address','canonicalId','content','contentClass','dateCreated','dateExpired','dateUpdated','lang','title','hasImg','imgPrefix'));
     $this
       ->set('active', true, true)
       ->set('contentClass', static::getNormalizedClassName(), true)
       ->set('dateCreated', new \DateTime(), true)
       ->set('dateUpdated', new \DateTime(), true)
+      ->set('hasImg', false, true)
       ->set('lang', 'en', true)
     ;
     $this->registerListener('Change', $this, 'onFieldChange');
+    parent::__construct($elements, $t);
+  }
+
+  public function updateFromUserInput(array $data) {
+    parent::updateFromUserInput($data);
+    if (array_key_exists('tags', $data)) $this['tags'] = $data['tags'];
+    return $this;
   }
 
 
@@ -60,13 +65,6 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return $str;
   }
 
-  public function addTag(string $newVal) {
-    if (array_search($newVal, $this->tags) !== false) return $this;
-    $this->tags[] = $newVal;
-    $this->setData('tags', $this->tags, false);
-    return $this;
-  }
-
   public function getAncestors() {
     $path = explode('/', trim($this->getParentAddress(), '/'));
     $section = array_shift($path);
@@ -84,20 +82,16 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return substr($a, 0, strrpos($a, '/'));
   }
 
-  public function getTags() {
-    if (!$this['tags']) $this['tags'] = $this->db->getContentTags($this);
+  public function getTags(Interfaces\Cms $db=null) {
+    if (!$db) $db = $this->db;
+    if (!$db) throw new \RuntimeException("`getTags` is a lazy-loader and requires a Skel\Interfaces\Db object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
+    if (!$this->offsetExists('tags')) $this['tags'] = $this->db->getContentTags($this);
+    return $this->elements['tags'];
   }
 
   public function hasImg() { return $this->get('hasImg'); }
 
-  public function removeTag(string $val) {
-    if (($key = array_search($val, $this->tags)) === false) return $this;
-    array_splice($this->tags, $key, 1);
-    $this->setData('tags', $this->tags, false);
-    return $this;
-  }
-
-  public function setDb(Interfaces\CmsDb $db) {
+  public function setDb(Interfaces\Cms $db) {
     $this->db = $db;
     return $this;
   }
@@ -112,8 +106,18 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
   // Overrides
 
   protected function convertDataToField(string $field, $dataVal) {
+    if ($dataVal === null) return $dataVal;
+
     if ($field == 'active' || $field == 'hasImg') return (bool)$dataVal;
-    if (substr($field, 0, 4) == 'date' && $dataVal !== null) return \DateTime::createFromFormat(\DateTime::ISO8601, $dataVal);
+    if (substr($field, 0, 4) == 'date') {
+      if (!($newVal = \DateTime::createFromFormat(\DateTime::ISO8601, $dataVal))) {
+        if (strlen($dataVal) == 10) $newVal = preg_replace('/[_\/.\']/', '-', $dataVal).'T'.(new \DateTime())->format('H:i:sO');
+        else $newVal = $dataVal;
+
+        if (!($newVal = \DateTime::createFromFormat(\DateTime::ISO8601, $newVal))) throw new \InvalidArgumentException("Don't know how to convert `$dataVal` to a valid DateTime object! Dates should be passed as either ISO8601 format (yyyy-mm-ddThh:mm:ss-zzzz) or as simply yyyy-mm-dd.");
+      }
+      return $newVal;
+    }
     return parent::convertDataToField($field, $dataVal);
   }
 
@@ -154,6 +158,7 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
   protected function validateField(string $field) {
     $val = $this->get($field);
     $required = array(
+      'acive' => 'You must specify whether or not this content is actively visible. This field cannot be null.',
       'address' => 'You must specify a public address at which this page can be found',
       'canonicalId' => 'The Canonical Id is required.',
       'content' => 'You must create content for this page.',
@@ -166,10 +171,7 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     if (array_key_exists($field, $required) && ($val === null || $val === '')) $this->setError($field, $required[$field], 'required');
     else $this->clearError($field, 'required');
 
-    if ($field == 'active' || $field == 'hasImg') {
-      if (!is_bool($val)) $this->setError($field, "Field `$field` cannot be null. It must be either true or false.", 'value');
-      else $this->clearError($field, 'value');
-    } elseif ($field == 'lang') {
+    if ($field == 'lang') {
       if (!is_string($val) || strlen($val) != 2) $this->setError($field, 'You must specify a two-letter ISO 639-1 language code for your page.', 'value');
       else $this->clearError($field, 'value');
     } elseif ($field == 'contentClass') {
@@ -178,16 +180,17 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     }
   }
 
-  public function validateObject() {
+  public function validateObject(Interfaces\Db $db=null) {
+    if (!$db) $db = $this->db;
     // Validate Address
-    if (!$this->db->contentAddressIsUnique($this)) {
+    if (!$db->contentAddressIsUnique($this)) {
       $this->setError('address', 'The address you specified for this content ('.$this['address'].') is already being used by other content.', 'uniqueness');
     } else {
       $this->clearError('address', 'uniqueness');
     }
 
     // Validate uniqueness of canonicalId + Lang
-    if ($this->db->contentCanonicalIdIsUnique($this)) {
+    if (!$db->contentCanonicalIdIsUnique($this)) {
       $this->setError('canonicalId', 'The canonical Id you specified for this content ('.$this['canonicalId'].') is already being used by other content with the same language ('.$this['lang'].'). You must either change the language or change the canonical Id.', 'uniqueness');
     } else {
       $this->clearError('canonicalId', 'uniqueness');

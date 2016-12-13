@@ -42,34 +42,6 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
    * Public Content Methods
    * *************************/
 
-  public function contentAddressIsUnique(Interfaces\Content $content) {
-    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
-    $stm->execute(array($content['address'], $content['id'] ?: 0));
-    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
-    return count($rows) == 0;
-  }
-  
-  public function contentCanonicalIdIsUnique(Interfaces\Content $content) {
-    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "canonicalId" = ? and "lang" = ? and "id" != ?');
-    $stm->execute(array($content['canonicalId'], $content['lang'], $content['id'] ?: 0));
-    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
-    return count($rows) == 0;
-  }
-
-
-
-  public function deleteContent(Interfaces\Content $content) {
-    if (!$content['id']) return true;
-
-    $this->db->beginTransaction();
-    $this->db->exec('DELETE FROM "contentTags" WHERE "contentId" = '.$content['id']);
-    $this->db->exec('DELETE FROM "content" WHERE "id" = '.$content['id']);
-    $this->db->commit();
-  }
-
-
-
-
   public function getContentByAddress($val) {
     if (!is_array($val)) {
       $single = true;
@@ -78,7 +50,7 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
       $single = false;
     }
     $placeholders = array();
-    for($i=0; $i < count($val); $i++) $placeholders = '?';
+    for($i=0; $i < count($val); $i++) $placeholders[] = '?';
 
     $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 and "address" in ('.implode(',', $placeholders).')');
     $stm->execute($val);
@@ -131,14 +103,28 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     for($i = 0; $i < count($tags); $i++) $placeholders[] = '?';
     $stm = $this->db->prepare('SELECT * FROM "tags" WHERE "tag" IN ('.implode(',',$placeholders).') ORDER BY "tag"');
     $stm->execute($tags);
-    $dbTags = new DataCollection($stm->fetchAll(\PDO::FETCH_ASSOC));
+    $dbTags = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    foreach($dbTags as $k => $t) $dbTags[$k] = ContentTag::restoreFromData($t);
+    $dbTags = new DataCollection($dbTags);
     $this->prepareDataCollection($dbTags, 'tags');
     
     foreach($tags as $t) {
-      if (count($dbTags->filter('tag', $t)) == 0) $dbTags[] = (new ContentTag())->set('tag', $t);
+      if (!$dbTags->contains('tag', $t)) $dbTags[] = (new ContentTag())->set('tag', $t);
     }
 
     return $dbTags;
+  }
+
+  public function getContentTags(Interfaces\Content $content) {
+    $collection = new DataCollection();
+    $this->prepareDataCollection($collection, 'tags');
+
+    if ($content[$content::PRIMARY_KEY] === null) return $collection;
+
+    $stm = 'SELECT * FROM "'.$collection->childTableName.'" JOIN "'.$collection->linkTableName.'" ON ("'.$collection->childTableName.'"."'.ContentTag::PRIMARY_KEY.'" = "'.$collection->linkTableName.'"."'.$collection->childLinkKey.'") WHERE "'.$collection->linkTableName.'"."'.$collection->parentLinkKey.'" = ?';
+    ($stm = $this->db->prepare($stm))->execute(array($content[$content::PRIMARY_KEY]));
+    foreach($stm->fetchAll(\PDO::FETCH_ASSOC) as $row) $collection[] = ContentTag::restoreFromData($row);
+    return $collection;
   }
 
   public function getParentOf(Interfaces\Content $content) {
@@ -146,6 +132,8 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     $parentAddress = substr($content->get('address'), 0, strrpos($content->get('address'), '/'));
     return $this->getContentByAddress($parentAddress);
   }
+
+
 
   public function updateContentImageCache(Interfaces\Content $content, Interfaces\App $app) {
     $imgPrefix = $content['imgPrefix'];
@@ -158,6 +146,41 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
     return true;
   }
+
+
+
+
+
+
+
+
+  /*****************************
+   * Validation Functions
+   * **************************/
+
+  public function contentAddressIsUnique(Interfaces\Content $content) {
+    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
+    $stm->execute(array($content['address'], $content['id'] ?: 0));
+    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    return count($rows) == 0;
+  }
+  
+  public function contentCanonicalIdIsUnique(Interfaces\Content $content) {
+    $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "canonicalId" = ? and "lang" = ? and "id" != ?');
+    $stm->execute(array($content['canonicalId'], $content['lang'], $content['id'] ?: 0));
+    $rows = $stm->fetchAll(\PDO::FETCH_ASSOC);
+    return count($rows) == 0;
+  }
+
+  public function tagIsUnique(Interfaces\ContentTag $tag) {
+    $stm = $this->db->prepare('SELECT 1 FROM "'.$tag::TABLE_NAME.'" WHERE "tag" = ? and "'.$tag::PRIMARY_KEY.'" != ?');
+    $stm->execute(array($tag['tag'], $tag[$tag::PRIMARY_KEY]));
+    $rows = $stm->fetchAll(\PDO::FETCH_NUM);
+    return count($rows) == 0;
+  }
+    
+
+
 
 
 
@@ -209,16 +232,30 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     return $result;
   }
 
+  protected function getPrimaryChanges(Interfaces\DataClass $obj) {
+    $changes = parent::getPrimaryChanges($obj);
+    if ($obj instanceof Interfaces\Content) {
+      $changes['setBySystem'] = array();
+      foreach($obj as $field => $val) {
+        if ($obj->fieldSetBySystem($field)) $changes['setBySystem'][$field] = true;
+      }
+      $changes['setBySystem'] = json_encode($changes['setBySystem']);
+    }
+    return $changes;
+  }
+
 
 
   protected function prepareDataCollection(Interfaces\DataCollection $c, string $field) {
     if ($field == 'tags') {
       $c->linkTableName = 'contentTags';
-      $c->childTableName = 'tags'
+      $c->childTableName = 'tags';
       $c->parentLinkKey = 'contentId';
       $c->childLinkKey = 'tagId';
     }
   }
+
+
 
 
 
