@@ -82,6 +82,11 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return substr($a, 0, strrpos($a, '/'));
   }
 
+  public function getSlug() {
+    $a = $this['address'];
+    return substr($a, strrpos($a, '/')+1);
+  }
+
   public function getTags(Interfaces\Cms $db=null) {
     if (!$db) $db = $this->db;
     if (!$db) throw new \RuntimeException("`getTags` is a lazy-loader and requires a Skel\Interfaces\Db object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
