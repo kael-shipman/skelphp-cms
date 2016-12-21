@@ -2,6 +2,8 @@
 /**
  * Cms is a base Cms class that manages database interactions and data interfacing
  *
+ * NOTE: This documentation is out of date. Please disregard until further notice.
+ *
  * This is a tricky class. The concept is that name of the content classes are stored
  * in the db as part of the object data. Therefore, the actual Cms object that you use must
  * know how to handle all of the classes of content that your app uses. This is accomplished
@@ -25,7 +27,7 @@
  */
 namespace Skel;
 
-class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
+class Cms extends Db implements Interfaces\Cms {
 
   const VERSION = 1;
   const SCHEMA_NAME = "SkelCms";
@@ -77,6 +79,10 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     $content = $this->getObjectsFromQuery($stm);
     if (count($content) > 0) return $content[0];
     return null;
+  }
+
+  public function getContentClasses() {
+    return array('post' => 'Skel\Post', 'page' => 'Skel\Page');
   }
 
   public function getContentIndex(array $parents=null, int $limit=null, int $page=1, $orderby='"dateCreated" DESC') {
@@ -209,13 +215,15 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
 
 
   protected function dressData(array $data) {
-    switch($data['contentClass']) {
-    case 'page' :
-      return \Skel\Page::restoreFromData($data);
-    case 'post' :
-      return \Skel\Post::restoreFromData($data);
-    default : throw new \Skel\UnknownContentClassException("Don't know how to dress `$data[contentClass]` content.");
+    $classes = $this->getContentClasses();
+    if (!$data['contentClass'] || !array_key_exists($data['contentClass'], $classes)) {
+      $e = new UnknownContentClassException("All valid content must contain a `contentClass` property that contains one of the known content classes. The contentClass provided for this object is `$data[contentClass]`. Note: You can register new content class associations by overriding \\Skel\\Cms's `getContentClasses` method.");
+      $e->extra = array('contentData' => $data);
+      throw $e;
     }
+    $obj = $classes[$data['contentClass']]::restoreFromData($data);
+    $obj->setDb($this);
+    return $obj;
   }
 
   protected function downgradeDatabase(int $targetVersion, int $fromVersion) {
@@ -228,7 +236,7 @@ class Cms extends Db implements Interfaces\Cms, Interfaces\ErrorHandler {
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
     if (count($result) == 0) return $result;
 
-    foreach($result as $k => $data) $result[$k] = $this->dressData($data)->setDb($this);
+    foreach($result as $k => $data) $result[$k] = $this->dressData($data);
     return $result;
   }
 
