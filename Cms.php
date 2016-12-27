@@ -85,9 +85,9 @@ class Cms extends Db implements Interfaces\Cms {
     return array('post' => 'Skel\Post', 'page' => 'Skel\Page');
   }
 
-  public function getContentIndex(array $parents=null, int $limit=null, int $page=1, $orderby='"dateCreated" DESC') {
+  public function getContentIndex(array $parents=null, int $limit=null, int $offset=0, $orderby='"dateCreated" DESC') {
     $orderby = 'ORDER BY '.$orderby.' ';
-    if ($limit) $limit = "LIMIT $limit OFFSET ".(($page-1)*$limit);
+    if ($limit) $limit = "LIMIT $limit OFFSET $offset";
 
     if (!$parents) $parents = array();
     $placeholders = array();
