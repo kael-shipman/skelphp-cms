@@ -77,6 +77,12 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return $ancestors;
   }
 
+  public function getChildren(Interfaces\Cms $db=null) {
+    if (!$db) $db = $this->db;
+    if (!$db) throw new UnpreparedObjectException("`getChildren` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
+    return new DataCollection($db->getContentIndex(array($this['address'])));
+  }
+
   public function getParentAddress() {
     $a = $this['address'];
     return substr($a, 0, strrpos($a, '/'));
@@ -89,10 +95,12 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
 
   public function getTags(Interfaces\Cms $db=null) {
     if (!$db) $db = $this->db;
-    if (!$db) throw new \RuntimeException("`getTags` is a lazy-loader and requires a Skel\Interfaces\Db object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
+    if (!$db) throw new UnpreparedObjectException("`getTags` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
     if (!$this->offsetExists('tags')) $this['tags'] = $this->db->getContentTags($this);
     return $this->elements['tags'];
   }
+
+  public function hasChildren() { return count($this->getChildren()) > 0; }
 
   public function hasImg() { return $this->get('hasImg'); }
 
