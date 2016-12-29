@@ -67,13 +67,8 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
 
   public function getAncestors() {
     $path = explode('/', trim($this->getParentAddress(), '/'));
-    $section = array_shift($path);
-    $a = array();
     $ancestors = array();
-    foreach($path as $p) {
-      $a[] = $p;
-      $ancestors[] = '/'.implode('/',$a);
-    }
+    foreach($path as $k => $p) $ancestors[] = $ancestors[$k-1].'/'.$p;
     return $ancestors;
   }
 
