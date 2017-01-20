@@ -3,14 +3,6 @@
 $path = '.';
 
 require_once $path.'/vendor/autoload.php';
-require_once $path.'/vendor/skel/interfaces/Exceptions.php';
-require_once $path.'/vendor/skel/interfaces/Interfaces.php';
-require_once $path.'/vendor/skel/db/Db.php';
-require_once $path.'/vendor/skel/uri/Uri.php';
-require_once $path.'/Content.php';
-require_once $path.'/Page.php';
-require_once $path.'/Post.php';
-require_once $path.'/Cms.php';
 
 class Benchmark {
   protected static $checkpoints = array();

@@ -2,7 +2,7 @@
   "name" : "skel/cms",
   "description" : "The Skel CMS is intended to be a highly-customizable, bare-bones CMS based on content types that each extend the basic Content class. Websites will typically use the Page class, which adds a URI, image, title, meta tags, and other such things to the basic Content class, but other classes are certainly possible. For example, one might build a Video class that stores information about youtube or vimeo videos. The advantage of this is that each custom content type is a class that can have its own built-in functionality.",
   "type" : "library",
-  "keywords" : ["CMS", "content management system"],
+  "keywords" : ["CMS", "content management system", "blog platform", "blogging"],
   "license" : "GPL3",
   "authors" : [
     {
@@ -13,9 +13,16 @@
     }
   ],
   "require" : {
-    "php" : ">=5.4"
+    "php" : ">=5.3",
+    "skel/header" : "~0.0",
+    "skel/db" : "~0.0"
   },
   "require-dev" : {
     "phpunit/phpunit" : "~5"
+  },
+  "autoload" : {
+    "psr-4" : {
+      "Skel\\" : "src/"
+    }
   }
 }
