@@ -85,21 +85,21 @@ class Cms extends Db implements Interfaces\Cms {
     return array('post' => 'Skel\Post', 'page' => 'Skel\Page');
   }
 
-  public function getContentIndex(array $parents=null, int $limit=null, int $offset=0, $orderby='"dateCreated" DESC') {
+  public function getContentIndex(array $parent_addresses=null, int $limit=null, int $offset=0, $orderby='"dateCreated" DESC') {
     $orderby = 'ORDER BY '.$orderby.' ';
     if ($limit) $limit = "LIMIT $limit OFFSET $offset";
 
-    if (!$parents) $parents = array();
+    if (!$parent_addresses) $parent_addresses = array();
     $placeholders = array();
-    foreach($parents as $k => $p) {
+    foreach($parent_addresses as $k => $p) {
       $placeholders[] = '"address" like ?';
-      $parents[$k] = "$p/%";
+      $parent_addresses[$k] = "$p/%";
     }
     if (count($placeholders) > 0) $placeholders = 'and ('.implode(' or ', $placeholders).') ';
     else $placeholders = '';
 
     $stm = $this->db->prepare('SELECT * FROM "content" WHERE "active" = 1 '.$placeholders.$orderby.$limit);
-    $stm->execute($parents);
+    $stm->execute($parent_addresses);
     $content = $this->getObjectsFromQuery($stm);
     return $content;
   }
@@ -127,7 +127,7 @@ class Cms extends Db implements Interfaces\Cms {
 
     if ($content[$content::PRIMARY_KEY] === null) return $collection;
 
-    $stm = 'SELECT * FROM "'.$collection->childTableName.'" JOIN "'.$collection->linkTableName.'" ON ("'.$collection->childTableName.'"."'.ContentTag::PRIMARY_KEY.'" = "'.$collection->linkTableName.'"."'.$collection->childLinkKey.'") WHERE "'.$collection->linkTableName.'"."'.$collection->parentLinkKey.'" = ?';
+    $stm = 'SELECT * FROM "'.$collection->getChildTableName().'" JOIN "'.$collection->getLinkTableName().'" ON ("'.$collection->getChildTableName().'"."'.ContentTag::PRIMARY_KEY.'" = "'.$collection->getLinkTableName().'"."'.$collection->getChildLinkKey().'") WHERE "'.$collection->getLinkTableName().'"."'.$collection->getParentLinkKey().'" = ?';
     ($stm = $this->db->prepare($stm))->execute(array($content[$content::PRIMARY_KEY]));
     foreach($stm->fetchAll(\PDO::FETCH_ASSOC) as $row) $collection[] = ContentTag::restoreFromData($row);
     return $collection;
@@ -141,22 +141,6 @@ class Cms extends Db implements Interfaces\Cms {
 
 
 
-  public function updateContentImageCache(Interfaces\Content $content, Interfaces\App $app) {
-    $imgPrefix = $content['imgPrefix'];
-    $parent = $content->getParentAddress();
-    //if (!$imgPrefix || !$parent) return false;
-
-    $img = $app->getPublicRoot().'/assets/imgs'.$parent.'/'.$imgPrefix.'.jpg';
-    if (file_exists($img)) $content['hasImg'] = true;
-    else $content['hasImg'] = false;
-
-    return true;
-  }
-
-
-
-
-
 
 
 
@@ -164,6 +148,15 @@ class Cms extends Db implements Interfaces\Cms {
    * Validation Functions
    * **************************/
 
+  /**
+   * Validation function to check whether the address of this content is unique across all content
+   *
+   * This function is called from the `DataClass::validateObject` method, which validates the object
+   * against the collection of objects managed by the CMS.
+   *
+   * @param Content $content
+   * @return bool
+   */
   public function contentAddressIsUnique(Interfaces\Content $content) {
     $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "address" = ? and "id" != ?');
     $stm->execute(array($content['address'], $content['id'] ?: 0));
@@ -171,6 +164,15 @@ class Cms extends Db implements Interfaces\Cms {
     return count($rows) == 0;
   }
   
+  /**
+   * Validation function to check whether the canonical ID of this object is unique for the its language
+   *
+   * This function is called from the `DataClass::validateObject` method, which validates the object
+   * against the collection of objects managed by the CMS.
+   *
+   * @param Content $content
+   * @return bool
+   */
   public function contentCanonicalIdIsUnique(Interfaces\Content $content) {
     $stm = $this->db->prepare('SELECT "id" FROM "content" WHERE "canonicalId" = ? and "lang" = ? and "id" != ?');
     $stm->execute(array($content['canonicalId'], $content['lang'], $content['id'] ?: 0));
@@ -178,6 +180,15 @@ class Cms extends Db implements Interfaces\Cms {
     return count($rows) == 0;
   }
 
+  /**
+   * Validation function to check whether a content tag is unique
+   *
+   * This function is called from the `DataClass::validateObject` method, which validates the object
+   * against the collection of objects managed by the CMS.
+   *
+   * @param ContentTag $tag
+   * @return bool
+   */
   public function tagIsUnique(Interfaces\ContentTag $tag) {
     $stm = $this->db->prepare('SELECT 1 FROM "'.$tag::TABLE_NAME.'" WHERE "tag" = ? and "'.$tag::PRIMARY_KEY.'" != ?');
     $stm->execute(array($tag['tag'], $tag[$tag::PRIMARY_KEY]));
@@ -256,10 +267,10 @@ class Cms extends Db implements Interfaces\Cms {
 
   protected function prepareDataCollection(Interfaces\DataCollection $c, string $field) {
     if ($field == 'tags') {
-      $c->linkTableName = 'contentTags';
-      $c->childTableName = 'tags';
-      $c->parentLinkKey = 'contentId';
-      $c->childLinkKey = 'tagId';
+      $c->getLinkTableName('contentTags');
+      $c->getChildTableName('tags');
+      $c->getParentLinkKey('contentId');
+      $c->getChildLinkKey('tagId');
     }
   }
 
