@@ -11,6 +11,12 @@ class Post extends Page implements Interfaces\Post {
 
 
 
+  public function getAuthor() { return $this['author']; }
+
+
+
+
+
 
   protected function typecheckAndConvertInput(string $field, $val) {
     if ($val === null) return $val;

@@ -267,10 +267,10 @@ class Cms extends Db implements Interfaces\Cms {
 
   protected function prepareDataCollection(Interfaces\DataCollection $c, string $field) {
     if ($field == 'tags') {
-      $c->getLinkTableName('contentTags');
-      $c->getChildTableName('tags');
-      $c->getParentLinkKey('contentId');
-      $c->getChildLinkKey('tagId');
+      $c->setLinkTableName('contentTags');
+      $c->setChildTableName('tags');
+      $c->setParentLinkKey('contentId');
+      $c->setChildLinkKey('tagId');
     }
   }
 
