@@ -11,7 +11,7 @@ namespace Skel;
 class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
   const TABLE_NAME = 'content';
 
-  protected $db;
+  protected $cms;
 
   public function __construct(array $elements=array(), Interfaces\Template $t=null) {
     $this->addDefinedFields(array('active','address','canonicalId','content','contentClass','dateCreated','dateExpired','dateUpdated','lang','title','hasImg','imgPrefix'));
@@ -30,6 +30,11 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
   public function updateFromUserInput(array $data) {
     parent::updateFromUserInput($data);
     if (array_key_exists('tags', $data)) $this['tags'] = $data['tags'];
+    return $this;
+  }
+
+  public function setDb(Interfaces\Cms $cms) {
+    $this->cms = $cms;
     return $this;
   }
 
@@ -65,6 +70,18 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return $str;
   }
 
+
+
+
+
+
+
+
+
+  // Getters and Attributes
+
+  public function getAddress() { return $this['address']; }
+
   public function getAncestors() {
     $path = explode('/', trim($this->getParentAddress(), '/'));
     $ancestors = array();
@@ -72,11 +89,27 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return $ancestors;
   }
 
-  public function getChildren(Interfaces\Cms $db=null) {
-    if (!$db) $db = $this->db;
-    if (!$db) throw new UnpreparedObjectException("`getChildren` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
-    return new DataCollection($db->getContentIndex(array($this['address'])));
+  public function getCanonicalId() { return $this['canonicalId']; }
+
+  public function getChildren(Interfaces\Cms $cms=null) {
+    if (!$cms) $cms = $this->cms;
+    if (!$cms) throw new UnpreparedObjectException("`getChildren` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
+    return new DataCollection($cms->getContentIndex(array($this['address'])));
   }
+
+  public function getContent() { return $this['content']; }
+
+  public function getContentClass() { return $this['contentClass']; }
+
+  public function getDateCreated() { return $this['dateCreated']; }
+
+  public function getDateExpired() { return $this['dateExpired']; }
+
+  public function getDateUpdated() { return $this['dateUpdated']; }
+
+  public function getImgPrefix() { return $this['imgPrefix']; }
+
+  public function getLang() { return $this['lang']; }
 
   public function getParentAddress() {
     $a = $this['address'];
@@ -88,21 +121,20 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return substr($a, strrpos($a, '/')+1);
   }
 
-  public function getTags(Interfaces\Cms $db=null) {
-    if (!$db) $db = $this->db;
-    if (!$db) throw new UnpreparedObjectException("`getTags` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
-    if (!$this->offsetExists('tags')) $this['tags'] = $this->db->getContentTags($this);
+  public function getTags(Interfaces\Cms $cms=null) {
+    if (!$cms) $cms = $this->cms;
+    if (!$cms) throw new UnpreparedObjectException("`getTags` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
+    if (!$this->offsetExists('tags')) $this['tags'] = $this->cms->getContentTags($this);
     return $this->elements['tags'];
   }
+
+  public function getTitle() { return $this['title']; }
 
   public function hasChildren() { return count($this->getChildren()) > 0; }
 
   public function hasImg() { return $this->get('hasImg'); }
 
-  public function setDb(Interfaces\Cms $db) {
-    $this->db = $db;
-    return $this;
-  }
+  public function isActive() { return (bool) $this['active']; }
 
 
 
@@ -188,17 +220,17 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     }
   }
 
-  public function validateObject(Interfaces\Db $db=null) {
-    if (!$db) $db = $this->db;
+  public function validateObject(Interfaces\Db $cms=null) {
+    if (!$cms) $cms = $this->cms;
     // Validate Address
-    if (!$db->contentAddressIsUnique($this)) {
+    if (!$cms->contentAddressIsUnique($this)) {
       $this->setError('address', 'The address you specified for this content ('.$this['address'].') is already being used by other content.', 'uniqueness');
     } else {
       $this->clearError('address', 'uniqueness');
     }
 
     // Validate uniqueness of canonicalId + Lang
-    if (!$db->contentCanonicalIdIsUnique($this)) {
+    if (!$cms->contentCanonicalIdIsUnique($this)) {
       $this->setError('canonicalId', 'The canonical Id you specified for this content ('.$this['canonicalId'].') is already being used by other content with the same language ('.$this['lang'].'). You must either change the language or change the canonical Id.', 'uniqueness');
     } else {
       $this->clearError('canonicalId', 'uniqueness');

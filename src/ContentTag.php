@@ -11,6 +11,11 @@ class ContentTag extends DataClass implements Interfaces\ContentTag {
 
 
 
+
+  public function getTagName() { return $this['tag']; }
+
+
+
   protected function typecheckAndConvertInput(string $field, $val) {
     if ($val === null || $val instanceof DataCollection) return $val;
 
