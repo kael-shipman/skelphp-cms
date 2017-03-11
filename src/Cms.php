@@ -111,18 +111,18 @@ class Cms extends Db implements Interfaces\Cms {
     $stm->execute($tags);
     $dbTags = $stm->fetchAll(\PDO::FETCH_ASSOC);
     foreach($dbTags as $k => $t) $dbTags[$k] = ContentTag::restoreFromData($t);
-    $dbTags = new DataCollection($dbTags);
+    $dbTags = $this->factory->new('dataCollection', null, $dbTags);
     $this->prepareDataCollection($dbTags, 'tags');
     
     foreach($tags as $t) {
-      if (!$dbTags->contains('tag', $t)) $dbTags[] = (new ContentTag())->set('tag', $t);
+      if (!$dbTags->contains('tag', $t)) $dbTags[] = $this->factory->new('contentTag')->set('tag', $t);
     }
 
     return $dbTags;
   }
 
   public function getContentTags(Interfaces\Content $content) {
-    $collection = new DataCollection();
+    $collection = $this->factory->new('dataCollection');
     $this->prepareDataCollection($collection, 'tags');
 
     if ($content[$content::PRIMARY_KEY] === null) return $collection;
@@ -225,18 +225,6 @@ class Cms extends Db implements Interfaces\Cms {
 
 
 
-  protected function dressData(array $data) {
-    $classes = $this->getContentClasses();
-    if (!$data['contentClass'] || !array_key_exists($data['contentClass'], $classes)) {
-      $e = new UnknownContentClassException("All valid content must contain a `contentClass` property that contains one of the known content classes. The contentClass provided for this object is `$data[contentClass]`. Note: You can register new content class associations by overriding \\Skel\\Cms's `getContentClasses` method.");
-      $e->extra = array('contentData' => $data);
-      throw $e;
-    }
-    $obj = $classes[$data['contentClass']]::restoreFromData($data);
-    $obj->setDb($this);
-    return $obj;
-  }
-
   protected function downgradeDatabase(int $targetVersion, int $fromVersion) {
     // Nothing to downgrade yet
   }
@@ -249,6 +237,12 @@ class Cms extends Db implements Interfaces\Cms {
 
     foreach($result as $k => $data) $result[$k] = $this->dressData($data);
     return $result;
+  }
+
+  protected function dressData(array $data) {
+    $obj = $this->factory->create('content', $data['contentClass'], $data);
+    $obj->setDb($this);
+    return $obj;
   }
 
   protected function getPrimaryChanges(Interfaces\DataClass $obj) {
