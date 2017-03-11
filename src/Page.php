@@ -116,6 +116,11 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
     return substr($a, 0, strrpos($a, '/'));
   }
 
+  public function getParentCanonicalId() {
+    $id = $this['canonicalId'];
+    return substr($id, 0, strrpos($id, '/'));
+  }
+
   public function getSlug() {
     $a = $this['address'];
     return substr($a, strrpos($a, '/')+1);
