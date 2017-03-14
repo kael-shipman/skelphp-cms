@@ -81,11 +81,8 @@ class Cms extends Db implements Interfaces\Cms {
     return null;
   }
 
-  public function getContentClasses() {
-    return array('post' => 'Skel\Post', 'page' => 'Skel\Page');
-  }
-
-  public function getContentIndex(array $parent_addresses=null, int $limit=null, int $offset=0, $orderby='"dateCreated" DESC') {
+  public function getContentIndex(array $parent_addresses=null, int $limit=null, int $offset=0, $orderby=null) {
+    if (!$orderby) $orderby = '"dateCreated" DESC';
     $orderby = 'ORDER BY '.$orderby.' ';
     if ($limit) $limit = "LIMIT $limit OFFSET $offset";
 
@@ -232,11 +229,12 @@ class Cms extends Db implements Interfaces\Cms {
 
 
   protected function getObjectsFromQuery(\PDOStatement $stm) {
+    $collection = $this->factory->new('dataCollection', 'generic');
     $result = $stm->fetchAll(\PDO::FETCH_ASSOC);
     if (count($result) == 0) return $result;
 
-    foreach($result as $k => $data) $result[$k] = $this->dressData($data);
-    return $result;
+    foreach($result as $k => $data) $collection[] = $this->dressData($data);
+    return $collection;
   }
 
   protected function dressData(array $data) {

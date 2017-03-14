@@ -94,7 +94,7 @@ class Page extends DataClass implements Interfaces\Page, Interfaces\Observable {
   public function getChildren(Interfaces\Cms $cms=null) {
     if (!$cms) $cms = $this->cms;
     if (!$cms) throw new UnpreparedObjectException("`getChildren` is a lazy-loader and requires a Skel\Interfaces\Cms object. This object may be passed into the function itself or may be provided beforehand via the Page object's `setDb` method");
-    return new DataCollection($cms->getContentIndex(array($this['address'])));
+    return $cms->getContentIndex(array($this['address']));
   }
 
   public function getContent() { return $this['content']; }
