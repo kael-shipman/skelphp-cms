@@ -102,12 +102,16 @@ class Cms extends Db implements Interfaces\Cms {
   }
 
   public function getOrAddTagsByName(array $tags) {
-    $placeholders = array();
-    for($i = 0; $i < count($tags); $i++) $placeholders[] = '?';
-    $stm = $this->db->prepare('SELECT * FROM "tags" WHERE "tag" IN ('.implode(',',$placeholders).') ORDER BY "tag"');
-    $stm->execute($tags);
-    $dbTags = $stm->fetchAll(\PDO::FETCH_ASSOC);
-    foreach($dbTags as $k => $t) $dbTags[$k] = ContentTag::restoreFromData($t);
+    if (count($tags) > 0) {
+        $placeholders = array();
+        for($i = 0; $i < count($tags); $i++) $placeholders[] = '?';
+        $stm = $this->db->prepare('SELECT * FROM "tags" WHERE "tag" IN ('.implode(',',$placeholders).') ORDER BY "tag"');
+        $stm->execute($tags);
+        $dbTags = $stm->fetchAll(\PDO::FETCH_ASSOC);
+        foreach($dbTags as $k => $t) $dbTags[$k] = ContentTag::restoreFromData($t);
+    } else {
+        $dbTags = [];
+    }
     $dbTags = $this->factory->new('dataCollection', null, $dbTags);
     $this->prepareDataCollection($dbTags, 'tags');
     
